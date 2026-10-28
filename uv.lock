@@ -815,12 +815,14 @@ source = { virtual = "." }
 dependencies = [
     { name = "llama-index-core" },
     { name = "llama-index-readers-file" },
+    { name = "pypdf" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "llama-index-core", specifier = ">=0.14.25" },
     { name = "llama-index-readers-file", specifier = ">=0.7.0" },
+    { name = "pypdf", specifier = ">=6.21.3" },
 ]
 
 [[package]]

@@ -1,0 +1,37 @@
+"""Human-readable PDF loading inspection."""
+
+import argparse
+import sys
+from pathlib import Path
+
+from .ingestion import load_pdf
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="逐页加载 PDF 并显示原文及物理页码")
+    parser.add_argument("file", type=Path, help="PDF 文件路径")
+    parser.add_argument("--start", type=int, default=1, help="起始物理页码（从 1 开始）")
+    parser.add_argument("--end", type=int, help="结束物理页码（包含该页；默认到末页）")
+    args = parser.parse_args(argv)
+    try:
+        result = load_pdf(args.file, args.start, args.end)
+    except Exception as exc:
+        print(f"加载失败: {args.file}: {exc}", file=sys.stderr)
+        return 1
+    print(f"文件: {result.path}\nPDF 总页数: {result.total_pages}\n检查页数: {len(result.pages)}")
+    for page in result.pages:
+        print(f"\n--- 物理页码 {page.number} ---")
+        if page.status == "failed":
+            print(f"解析失败: {page.error}")
+        elif page.status == "empty":
+            print("无可提取文本")
+        else:
+            print(page.document.text)
+    counts = {status: sum(page.status == status for page in result.pages)
+              for status in ("success", "empty", "failed")}
+    print(f"\n统计: 成功 {counts['success']} 页，空文本 {counts['empty']} 页，失败 {counts['failed']} 页")
+    return 1 if counts["failed"] else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
