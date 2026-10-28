@@ -25,8 +25,11 @@ def main(argv: list[str] | None = None) -> int:
             print(f"解析失败: {page.error}")
         elif page.status == "empty":
             print("无可提取文本")
-        else:
+        elif page.document is not None:
             print(page.document.text)
+        else:
+            print("解析失败: 缺少页面文档", file=sys.stderr)
+            return 1
     counts = {status: sum(page.status == status for page in result.pages)
               for status in ("success", "empty", "failed")}
     print(f"\n统计: 成功 {counts['success']} 页，空文本 {counts['empty']} 页，失败 {counts['failed']} 页")
