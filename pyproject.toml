@@ -4,6 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.12"
 dependencies = [
     "llama-index-core>=0.14.25",
+    "llama-index-embeddings-huggingface>=0.6,<0.7",
     "llama-index-readers-file>=0.7.0",
     "pypdf>=6.21.3",
 ]
