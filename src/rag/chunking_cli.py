@@ -1,0 +1,48 @@
+"""Inspect page-bounded chunks and their source locations."""
+
+import argparse
+import sys
+from pathlib import Path
+
+from llama_index.core.schema import MetadataMode
+from llama_index.core.utils import get_tokenizer
+
+from .chunking import chunk_documents
+from .chunking_config import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
+from .ingestion import load_pdf
+from .ingestion_config import DEFAULT_START_PAGE, MetadataKey, PageStatus
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="按页切片并显示完整原文和来源")
+    parser.add_argument("file", type=Path, help="PDF 文件路径")
+    parser.add_argument("--start", type=int, default=DEFAULT_START_PAGE, help="起始物理页码")
+    parser.add_argument("--end", type=int, help="结束物理页码（包含该页）")
+    parser.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE, help="切片大小（token）")
+    parser.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP, help="最大重叠量（token）")
+    args = parser.parse_args(argv)
+    try:
+        result = load_pdf(args.file, args.start, args.end)
+        documents = [p.document for p in result.pages if p.status == PageStatus.SUCCESS and p.document is not None]
+        nodes = chunk_documents(documents, args.chunk_size, args.chunk_overlap)
+    except Exception as exc:
+        print(f"切片失败: {args.file}: {exc}", file=sys.stderr)
+        return 1
+    print(f"文件: {result.path}\n切片大小: {args.chunk_size} token；最大重叠: {args.chunk_overlap} token")
+    print("按物理页分别切片；按顺序展示相邻片段，跨页不重叠。")
+    tokenize = get_tokenizer()
+    texts = [node.get_content(metadata_mode=MetadataMode.NONE) for node in nodes]
+    lengths = [len(tokenize(text)) for text in texts]
+    for index, (node, content, length) in enumerate(zip(nodes, texts, lengths), 1):
+        print(f"\n--- 片段 {index} | ID {node.node_id} | 物理页码 {node.metadata[MetadataKey.PAGE_NUMBER.value]} | {length} token | {len(content)} 字符 ---")
+        print(content)
+    for page in result.pages:
+        if page.status != PageStatus.SUCCESS:
+            print(f"物理页码 {page.number}: {'无可提取文本' if page.status == PageStatus.EMPTY else '解析失败: ' + str(page.error)}")
+    print(f"\n统计: {len(nodes)} 个片段；token 长度最小/最大/平均: "
+          + (f"{min(lengths)}/{max(lengths)}/{sum(lengths)/len(lengths):.1f}" if lengths else "无"))
+    return 1 if any(page.status == PageStatus.FAILED for page in result.pages) else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

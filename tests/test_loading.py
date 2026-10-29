@@ -9,7 +9,7 @@ from pypdf import PdfWriter
 from pypdf._page import PageObject
 
 from src.rag.ingestion import load_pdf
-from src.rag import ingestion
+from src.rag.ingestion_config import PageStatus
 from src.rag.cli import main
 
 
@@ -25,10 +25,11 @@ class LoadingTests(unittest.TestCase):
             self.assertEqual(result.total_pages, 3)
             self.assertEqual([page.number for page in result.pages], [2, 3])
             self.assertTrue(all(page.status == "empty" for page in result.pages))
-            self.assertIs(result.pages[0].status, ingestion.PageStatus.EMPTY)
+            self.assertIs(result.pages[0].status, PageStatus.EMPTY)
             document = result.pages[0].document
             assert document is not None
             self.assertEqual(document.metadata["page_number"], 2)
+            self.assertEqual(document.metadata["source_location"], "物理页码 2")
             self.assertEqual(document.metadata["source_path"], str(path.resolve()))
 
     def test_one_page_failure_does_not_hide_other_pages(self):
