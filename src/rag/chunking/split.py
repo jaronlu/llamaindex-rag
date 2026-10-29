@@ -13,11 +13,13 @@ from .offset_splitter import split_with_offsets
 
 def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHUNK_SIZE,
                     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[BaseNode]:
+    """将页面文档转换为带来源的节点；大小和重叠以 tokenizer 的 token 计。"""
 
     # 此限制比允许 chunk_overlap == chunk_size 的 SentenceSplitter 更严格。
     # 两者相等时合并窗口无法前进，重叠会退化为重复的文本块。
     if chunk_size <= 0 or chunk_overlap < 0 or chunk_overlap >= chunk_size:
         raise ValueError("切片大小必须大于 0，重叠量须大于等于 0 且小于切片大小")
+    # 先按连续页面分组，再对每组切片，避免跨越缺页或不同文档。
     groups: list[list[Document]] = []
     for document in documents:
         metadata = document.metadata
@@ -93,6 +95,7 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
                 raise ValueError("无法确定切片来源位置")
             node.start_char_idx, node.end_char_idx = start_char, end_char
             if spans:
+                # 左闭右开区间相交，表示该切片确实包含此页的字符。
                 pages = [number for start, end, number in spans
                          if start < end_char and end > start_char]
                 if not pages:

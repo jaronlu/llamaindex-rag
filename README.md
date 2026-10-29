@@ -1,5 +1,15 @@
 # LlamaIndex RAG
 
+## 从哪里开始读代码
+
+目前实现到索引阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引`。检索、重排和回答尚未实现，也不能仅凭索引构建成功判断检索质量。
+
+1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
+2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
+3. 最后看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
+
+`config/` 集中存放默认值和字段名；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
+
 ## 安装依赖
 
 需要安装 [uv](https://docs.astral.sh/uv/) 和 Python 3.12。在项目根目录运行：

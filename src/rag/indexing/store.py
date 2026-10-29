@@ -28,6 +28,7 @@ class IndexBuildError(ValueError):
 
 def publish_index(staging: Path, destination: Path) -> None:
     """以禁止替换的系统调用原子发布目录。"""
+    # 系统调用同时完成“目标不存在”检查和重命名，避免并发时覆盖已有目录。
     libc = ctypes.CDLL(None, use_errno=True)
     if sys.platform == "darwin":
         rename = libc.renamex_np
@@ -69,6 +70,7 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
     published = False
     try:
         for node in nodes:
+            # 在副本上写入向量，避免修改调用方持有的原始节点。
             copy = node.model_copy(deep=True)
             # 仅嵌入正文，避免本地路径等来源信息影响向量或发送到模型。
             vector = embed_model.get_text_embedding(copy.get_content(metadata_mode=MetadataMode.NONE))
@@ -83,8 +85,10 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
         phase = IndexBuildPhase.PUBLISHING
         with tempfile.TemporaryDirectory(prefix=INDEX_BUILD_TEMP_PREFIX, dir=location.parent) as temp:
             staging = Path(temp) / INDEX_STAGING_DIR
+            # 节点已有 embedding，索引保存向量及可按 ID 回查的节点。
             index = VectorStoreIndex(prepared, embed_model=embed_model)
             index.storage_context.persist(persist_dir=str(staging))
+            # manifest 是项目自己的构建记录，用于核对来源和配置。
             manifest = {**config, ManifestKey.DIMENSION: dimension, ManifestKey.CHUNK_COUNT: len(nodes), ManifestKey.COMPLETE: True}
             (staging / MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
             # 发布完成后临时目录清理仍可能失败，须保留真实的发布状态。

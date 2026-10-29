@@ -82,9 +82,11 @@ def main(argv: list[str] | None = None) -> int:
         paths = [path.expanduser().resolve(strict=True) for path in args.files]
         if len(paths) != len(set(paths)):
             raise ValueError("输入包含重复文档")
+        # 每个 PDF 先逐页加载，再汇总成功页面统一切片。
         documents: list[Document] = []
         versions = []
         for path in paths:
+            # 读取前后各算一次摘要，避免将读取中变化的文件误记为同一版本。
             digest = file_hash(path)
             result = load_pdf(path, args.start, args.end)
             failures = [page for page in result.pages if page.status == PageStatus.FAILED]
@@ -98,6 +100,7 @@ def main(argv: list[str] | None = None) -> int:
             if digest != file_hash(path):
                 raise ValueError(f"读取期间文件发生变化: {path}")
             versions.append({ManifestKey.PATH: str(path), ManifestKey.SHA256: digest, ManifestKey.START: args.start, ManifestKey.END: args.end or result.total_pages, ManifestKey.EMPTY_PAGES: empty, ManifestKey.TEXT_COVERAGE_COMPLETE: not empty})
+        # Document 是页面；Node 是切片。索引保存的是这些 Node。
         nodes = chunk_documents(documents, args.chunk_size, args.chunk_overlap)
         node_count = len(nodes)
         if not nodes:

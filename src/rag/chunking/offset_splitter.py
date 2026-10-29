@@ -7,6 +7,8 @@ from pydantic import PrivateAttr
 
 
 class _OffsetSentenceSplitter(SentenceSplitter):
+    """沿用句子切分规则，同时记录每个片段在拼接原文中的字符范围。"""
+
     # 此适配器遵循已安装版本 SentenceSplitter 的私有合并约定。
     _offsets: list[tuple[int, int]] = PrivateAttr(default_factory=list)
     _split_text_value: str = PrivateAttr(default="")
@@ -22,6 +24,7 @@ class _OffsetSentenceSplitter(SentenceSplitter):
         new_chunk = True
 
         def close() -> None:
+            # 结束当前窗口，并把允许重叠的尾部内容留给下一个窗口。
             nonlocal current, size, new_chunk
             raw = "".join(item[0] for item in current)
             trimmed = raw.strip()

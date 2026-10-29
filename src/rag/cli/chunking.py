@@ -14,6 +14,7 @@ from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 
 
 def main(argv: list[str] | None = None) -> int:
+    """加载所选页面并展示切片、来源和长度统计。"""
     parser = argparse.ArgumentParser(description="切片并显示完整原文和来源")
     parser.add_argument("file", type=Path, help="PDF 文件路径")
     parser.add_argument("--start", type=int, default=DEFAULT_START_PAGE, help="起始物理页码")

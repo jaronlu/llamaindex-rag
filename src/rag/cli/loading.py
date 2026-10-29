@@ -9,6 +9,7 @@ from ..config.ingestion import DEFAULT_START_PAGE, PageStatus
 
 
 def main(argv: list[str] | None = None) -> int:
+    """解析命令行参数，展示每页结果并返回进程状态码。"""
     parser = argparse.ArgumentParser(description="逐页加载 PDF 并显示原文及物理页码")
     parser.add_argument("file", type=Path, help="PDF 文件路径")
     parser.add_argument("--start", type=int, default=DEFAULT_START_PAGE, help="起始物理页码（从 1 开始）")
