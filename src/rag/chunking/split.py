@@ -1,4 +1,4 @@
-"""Split source documents into traceable LlamaIndex nodes."""
+"""将源文档切分为可溯源的 LlamaIndex 节点。"""
 
 from collections.abc import Sequence
 
@@ -14,8 +14,8 @@ from .offset_splitter import OffsetSentenceSplitter
 def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHUNK_SIZE,
                     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[BaseNode]:
 
-    # Stricter than SentenceSplitter, which accepts chunk_overlap == chunk_size.
-    # There the merge window cannot advance, so overlap degrades into duplicate blocks.
+    # 此限制比允许 chunk_overlap == chunk_size 的 SentenceSplitter 更严格。
+    # 两者相等时合并窗口无法前进，重叠会退化为重复的文本块。
     if chunk_size <= 0 or chunk_overlap < 0 or chunk_overlap >= chunk_size:
         raise ValueError("切片大小必须大于 0，重叠量须大于等于 0 且小于切片大小")
     splitter = OffsetSentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
@@ -25,8 +25,8 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
         if "source_location" in metadata:
             raise ValueError("不再支持 source_location；PDF 来源请使用 page_numbers")
         required = (MetadataKey.FILE_NAME, MetadataKey.SOURCE_PATH, MetadataKey.SOURCE_ID)
-        # Requiring a non-empty string per key catches missing keys, non-string values
-        # and blank placeholders; whether a location is real is the writer's job.
+        # 要求每个键对应非空字符串，以发现缺失的键、非字符串值和空白占位符；
+        # 位置是否真实由写入方负责。
         if not all(isinstance(metadata.get(key.value), str) and metadata[key.value].strip()
                    for key in required):
             raise ValueError("来源身份或定位信息缺失，无法切片")
@@ -42,8 +42,8 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
         previous = groups[-1][-1] if groups else None
         previous_pages = previous.metadata.get(MetadataKey.PAGE_NUMBERS.value) if previous else None
         ignored = {MetadataKey.PAGE_NUMBERS.value}
-        # Only consecutive pages with matching source metadata and rendering settings
-        # may share a chunk; gaps and differing sources keep separate boundaries.
+        # 只有来源元数据和渲染设置一致的连续页面才能合并到同一切片；
+        # 页码不连续或来源不同时保留各自的边界。
         same_source = previous is not None and (
             {k: v for k, v in previous.metadata.items() if k not in ignored}
             == {k: v for k, v in metadata.items() if k not in ignored}
@@ -61,16 +61,15 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
     for group in groups:
         document = group[0]
         metadata = document.metadata
-        # Deep-copy, then exclude every metadata key. SentenceSplitter is metadata-aware:
-        # it subtracts metadata tokens injected into the embedding model or LLM from the
-        # chunk budget. Excluding them empties that string, so chunk_size measures body
-        # text only and results stop drifting with local path lengths. Only the rendered
-        # text is affected; the metadata itself stays on the nodes.
+        # 深拷贝后排除所有元数据键。SentenceSplitter 会考虑元数据：
+        # 它从切片预算中扣除注入嵌入模型或 LLM 的元数据 token。排除后该
+        # 字符串为空，因此 chunk_size 只衡量正文，结果也不再随本地路径长度变化。
+        # 这只影响渲染后的文本，元数据本身仍保留在节点上。
         source = document.model_copy(deep=True)
         spans: list[tuple[int, int, int]] = []
         if len(group) > 1:
-            # Record half-open page ranges before inserting separators, so a chunk can
-            # be attributed to every page it actually intersects.
+            # 在插入分隔符之前记录左闭右开的页面范围，
+            # 以便将切片归属于实际相交的每一页。
             parts: list[str] = []
             offset = 0
             for page_document in group:
@@ -86,11 +85,10 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
         source.excluded_embed_metadata_keys = list(metadata)
         source.excluded_llm_metadata_keys = list(metadata)
         page_nodes = splitter.get_nodes_from_documents([source])
-        # Replace parser-inferred offsets, which can point to an earlier repeated chunk.
+        # 替换解析器推断的偏移量，后者可能指向更早出现的重复切片。
         offsets = splitter.offsets(source.text, [node.get_content() for node in page_nodes])
-        # The temporary exclusions above are copied onto each node, which would keep source
-        # keys out of embedding text and LLM context. Restore the caller's settings so that
-        # sources carry through to retrieval and answering.
+        # 上述临时排除设置会被复制到每个节点，从而使来源键无法进入嵌入文本和 LLM 上下文。
+        # 恢复调用方的设置，使来源信息贯穿检索和回答。
         for node, (start_char, end_char) in zip(page_nodes, offsets):
             if not isinstance(node, TextNode):
                 raise ValueError("无法确定切片来源位置")
@@ -103,7 +101,7 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
                 node.metadata[MetadataKey.PAGE_NUMBERS.value] = pages
             node.excluded_embed_metadata_keys = list(document.excluded_embed_metadata_keys)
             node.excluded_llm_metadata_keys = list(document.excluded_llm_metadata_keys)
-        # Refresh related-node metadata after assigning each node's actual page numbers.
+        # 为每个节点设置实际页码后，刷新关联节点的元数据。
         for index, node in enumerate(page_nodes):
             if index:
                 node.relationships[NodeRelationship.PREVIOUS] = page_nodes[index - 1].as_related_node_info()

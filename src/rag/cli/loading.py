@@ -1,4 +1,4 @@
-"""Human-readable PDF loading inspection."""
+"""以人可读的方式检查 PDF 加载结果。"""
 
 import argparse
 import sys

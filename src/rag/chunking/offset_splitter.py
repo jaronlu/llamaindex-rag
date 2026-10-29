@@ -1,4 +1,4 @@
-"""SentenceSplitter with offsets recorded while its splits are merged."""
+"""在合并切分结果时记录偏移量的 SentenceSplitter。"""
 
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.sentence import _Split
@@ -6,7 +6,7 @@ from pydantic import PrivateAttr
 
 
 class OffsetSentenceSplitter(SentenceSplitter):
-    # This adapter follows the installed SentenceSplitter's private merge contract.
+    # 此适配器遵循已安装版本 SentenceSplitter 的私有合并约定。
     _offsets: list[tuple[int, int]] = PrivateAttr(default_factory=list)
     _split_text_value: str = PrivateAttr(default="")
 
@@ -14,7 +14,7 @@ class OffsetSentenceSplitter(SentenceSplitter):
         self._offsets = []
         self._split_text_value = "".join(split.text for split in splits)
         chunks: list[str] = []
-        # Keep each split's original character range, including reused overlap.
+        # 保留每个切分结果的原始字符范围，包括复用的重叠部分。
         current: list[tuple[str, int, int, int]] = []
         size = 0
         position = 0
@@ -25,14 +25,14 @@ class OffsetSentenceSplitter(SentenceSplitter):
             raw = "".join(item[0] for item in current)
             trimmed = raw.strip()
             if trimmed:
-                # Offsets must describe the stripped text returned to LlamaIndex.
+                # 偏移量必须对应返回给 LlamaIndex 的去除首尾空白后的文本。
                 start = current[0][2] + len(raw) - len(raw.lstrip())
                 self._offsets.append((start, start + len(trimmed)))
                 chunks.append(trimmed)
             old = current
             current = []
             size = 0
-            # Reuse whole trailing splits, preserving the original overlap behavior.
+            # 复用完整的尾部切分结果，保持原有重叠行为。
             for item in reversed(old):
                 if size + item[1] > self.chunk_overlap:
                     break
@@ -56,8 +56,8 @@ class OffsetSentenceSplitter(SentenceSplitter):
         return chunks
 
     def offsets(self, text: str, chunks: list[str]) -> list[tuple[int, int]]:
-        # Fail closed if upstream splitting or postprocessing stops preserving text;
-        # searching for chunks afterward is ambiguous when passages repeat.
+        # 如果上游切分或后处理未保留原文，则拒绝处理；
+        # 文段重复时，事后搜索切片无法确定位置。
         if self._split_text_value != text or len(chunks) != len(self._offsets) or any(text[start:end] != chunk for (start, end), chunk in zip(self._offsets, chunks)):
             raise ValueError("无法确定切片来源位置")
         return self._offsets

@@ -1,1 +1,1 @@
-"""Ingestion components."""
+"""文档摄取组件。"""

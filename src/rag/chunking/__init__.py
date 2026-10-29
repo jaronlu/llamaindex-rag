@@ -1,1 +1,1 @@
-"""Chunking components."""
+"""切片组件。"""

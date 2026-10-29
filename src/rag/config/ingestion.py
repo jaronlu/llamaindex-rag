@@ -1,4 +1,4 @@
-"""Constants for document ingestion."""
+"""文档摄取常量。"""
 
 from enum import StrEnum
 

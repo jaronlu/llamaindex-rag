@@ -1,4 +1,4 @@
-"""Inspect chunks and their source locations."""
+"""检查切片及其来源位置。"""
 
 import argparse
 import sys

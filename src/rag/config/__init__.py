@@ -1,1 +1,1 @@
-"""Config components."""
+"""配置组件。"""
