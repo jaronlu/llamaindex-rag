@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="1510" viewBox="0 0 1200 1510">
+<title>复杂 PDF：从解析到可溯源切片</title>
+<style>text{font-family:Helvetica,Arial,"PingFang SC","Microsoft YaHei",sans-serif;fill:#111827}.label{font-size:21px;font-weight:600}.sub{font-size:16px;fill:#475569}.edge{fill:none;stroke:#2563eb;stroke-width:2}</style>
+<defs><marker id="arrow" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto"><polygon points="0 0,10 3.5,0 7" fill="#2563eb"/></marker></defs>
+<rect width="1200" height="1510" fill="#ffffff"/>
+<text x="600" y="51" text-anchor="middle" font-size="28" font-weight="600">复杂 PDF：从解析到可溯源切片</text>
+<path id="edge-0" class="edge" marker-end="url(#arrow)" d="M600 176 V226"/>
+<path id="edge-1" class="edge" marker-end="url(#arrow)" d="M600 302 V330 H210 V370"/>
+<path id="edge-2" class="edge" marker-end="url(#arrow)" d="M600 302 V370"/>
+<path id="edge-3" class="edge" marker-end="url(#arrow)" d="M600 302 V330 H990 V370"/>
+<path id="edge-4" class="edge" marker-end="url(#arrow)" d="M600 446 V510"/>
+<path id="edge-5" class="edge" marker-end="url(#arrow)" d="M990 446 V475 H880 V510"/>
+<path id="edge-6" class="edge" marker-end="url(#arrow)" d="M990 446 V475 H1070 V510"/>
+<path id="edge-7" class="edge" marker-end="url(#arrow)" d="M210 446 V630 H600 V665"/>
+<path id="edge-8" class="edge" marker-end="url(#arrow)" d="M600 586 V665"/>
+<path id="edge-9" class="edge" marker-end="url(#arrow)" d="M880 586 V630 H600 V665"/>
+<path id="edge-10" class="edge" marker-end="url(#arrow)" d="M1070 586 V630 H600 V665"/>
+<path id="edge-11" class="edge" marker-end="url(#arrow)" d="M350 703 H400" stroke-dasharray="7 5"/>
+<path id="edge-12" class="edge" marker-end="url(#arrow)" d="M600 741 V815"/>
+<path id="edge-13" class="edge" marker-end="url(#arrow)" d="M600 891 V920 H210 V960"/>
+<path id="edge-14" class="edge" marker-end="url(#arrow)" d="M600 891 V960"/>
+<path id="edge-15" class="edge" marker-end="url(#arrow)" d="M600 891 V920 H990 V960"/>
+<path id="edge-16" class="edge" marker-end="url(#arrow)" d="M210 1052 V1085 H600 V1120"/>
+<path id="edge-17" class="edge" marker-end="url(#arrow)" d="M600 1052 V1120"/>
+<path id="edge-18" class="edge" marker-end="url(#arrow)" d="M990 1052 V1085 H600 V1120"/>
+<path id="edge-19" class="edge" marker-end="url(#arrow)" d="M600 1196 V1240"/>
+<path id="edge-20" class="edge" marker-end="url(#arrow)" d="M600 1316 V1360"/>
+<path id="edge-21" class="edge" marker-end="url(#arrow)" d="M800 1398 H1170 V138 H800" stroke-dasharray="7 5"/>
+<g id="pdf"><rect x="400" y="100" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="130" text-anchor="middle">原始 PDF</text><text class="sub" x="600.0" y="157" text-anchor="middle">正文 · 表格 · 图片</text></g>
+<g id="parse"><rect x="400" y="226" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="256" text-anchor="middle">文档加载与解析</text><text class="sub" x="600.0" y="283" text-anchor="middle">识别页面、布局与阅读顺序</text></g>
+<g id="text"><rect x="60" y="370" width="300" height="76" rx="8" fill="#f0fdf4" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="210.0" y="400" text-anchor="middle">正文块</text><text class="sub" x="210.0" y="427" text-anchor="middle">提取文字</text></g>
+<g id="table"><rect x="450" y="370" width="300" height="76" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="400" text-anchor="middle">表格块</text><text class="sub" x="600.0" y="427" text-anchor="middle">识别表头、行列及跨页关系</text></g>
+<g id="image"><rect x="840" y="370" width="300" height="76" rx="8" fill="#faf5ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="990.0" y="400" text-anchor="middle">图片块</text><text class="sub" x="990.0" y="427" text-anchor="middle">提取图片或页面区域</text></g>
+<g id="md"><rect x="450" y="510" width="300" height="76" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="540" text-anchor="middle">结构化表格或 Markdown</text><text class="sub" x="600.0" y="567" text-anchor="middle">保留表头与数据关系</text></g>
+<g id="desc"><rect x="800" y="510" width="160" height="76" rx="8" fill="#faf5ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="880.0" y="540" text-anchor="middle">图片描述</text><text class="sub" x="880.0" y="567" text-anchor="middle">可选 · 标记生成内容</text></g>
+<g id="ref"><rect x="980" y="510" width="180" height="76" rx="8" fill="#faf5ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="1070.0" y="540" text-anchor="middle">图片引用</text><text class="sub" x="1070.0" y="567" text-anchor="middle">关联原图或页面区域</text></g>
+<g id="blocks"><rect x="400" y="665" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="695" text-anchor="middle">组织内容块</text><text class="sub" x="600.0" y="722" text-anchor="middle">按阅读顺序排列</text></g>
+<g id="source"><rect x="30" y="665" width="320" height="76" rx="8" fill="#f0fdf4" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="190.0" y="695" text-anchor="middle">来源信息</text><text class="sub" x="190.0" y="722" text-anchor="middle">文件、路径、页码；可选坐标</text></g>
+<g id="split"><rect x="400" y="815" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="845" text-anchor="middle">按内容类型切片</text><text class="sub" x="600.0" y="872" text-anchor="middle">保留片段来源</text></g>
+<g id="tc"><rect x="60" y="960" width="300" height="92" rx="8" fill="#f0fdf4" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="210.0" y="990" text-anchor="middle">正文切片</text><text class="sub" x="210.0" y="1017" text-anchor="middle">句子或段落；按需重叠</text></g>
+<g id="tb"><rect x="450" y="960" width="300" height="92" rx="8" fill="#fff7ed" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="990" text-anchor="middle">表格切片</text><text class="sub" x="600.0" y="1017" text-anchor="middle">尽量完整；按行拆分保留表头</text></g>
+<g id="ic"><rect x="840" y="960" width="300" height="92" rx="8" fill="#faf5ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="990.0" y="990" text-anchor="middle">图片切片</text><text class="sub" x="990.0" y="1017" text-anchor="middle">描述与引用关联，保留原图位置</text></g>
+<g id="node"><rect x="400" y="1120" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="1150" text-anchor="middle">片段 / Node</text><text class="sub" x="600.0" y="1177" text-anchor="middle">内容 · 类型 · 来源</text></g>
+<g id="search"><rect x="400" y="1240" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="1270" text-anchor="middle">索引与检索</text><text class="sub" x="600.0" y="1297" text-anchor="middle">保留片段与来源</text></g>
+<g id="verify"><rect x="400" y="1360" width="400" height="76" rx="8" fill="#eff6ff" stroke="#cbd5e1" stroke-width="1.5"/><text class="label" x="600.0" y="1390" text-anchor="middle">查看片段及来源</text><text class="sub" x="600.0" y="1417" text-anchor="middle">回到原 PDF 核对</text></g>
+<text x="1115" y="1460" text-anchor="end" font-size="15" fill="#475569">虚线：来源附加 / 回原文核对</text></svg>
