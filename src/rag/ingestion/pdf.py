@@ -8,7 +8,7 @@ from llama_index.core import Document
 from llama_index.core.readers.base import BaseReader
 from pypdf import PdfReader
 
-from .ingestion_config import DEFAULT_START_PAGE, MetadataKey, PageStatus
+from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 
 @dataclass
 class PageResult:

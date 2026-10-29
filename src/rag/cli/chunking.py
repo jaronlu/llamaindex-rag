@@ -7,10 +7,10 @@ from pathlib import Path
 from llama_index.core.schema import MetadataMode
 from llama_index.core.utils import get_tokenizer
 
-from .chunking import chunk_documents
-from .chunking_config import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
-from .ingestion import load_pdf
-from .ingestion_config import DEFAULT_START_PAGE, MetadataKey, PageStatus
+from ..chunking.split import chunk_documents
+from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
+from ..ingestion.pdf import load_pdf
+from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 
 
 def main(argv: list[str] | None = None) -> int:

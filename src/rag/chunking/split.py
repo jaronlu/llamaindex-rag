@@ -6,8 +6,8 @@ from llama_index.core import Document
 from llama_index.core.schema import BaseNode, NodeRelationship, TextNode
 from pathlib import Path
 
-from .chunking_config import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
-from .ingestion_config import MetadataKey
+from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
+from ..config.ingestion import MetadataKey
 from .offset_splitter import OffsetSentenceSplitter
 
 

@@ -4,8 +4,8 @@ import argparse
 import sys
 from pathlib import Path
 
-from .ingestion import load_pdf
-from .ingestion_config import DEFAULT_START_PAGE, PageStatus
+from ..ingestion.pdf import load_pdf
+from ..config.ingestion import DEFAULT_START_PAGE, PageStatus
 
 
 def main(argv: list[str] | None = None) -> int:

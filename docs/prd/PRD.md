@@ -196,20 +196,22 @@ PDF → 文档加载 → 文本切片 → 向量化与索引 → 检索 → 重�
 
 ## 10. 项目结构规划
 
+以下为目标结构；尚未实现的目录在对应功能落地时创建。目录内文件按实际职责划分，结构调整时同步更新本节。
+
 ```text
 LlamaIndex_RAG/
 ├── AGENTS.md                 # 项目开发约定
-├── README.md                 # 安装、配置、各阶段运行与验证说明（计划）
-├── pyproject.toml            # Python 项目与依赖配置（计划）
+├── README.md                 # 安装、配置、各阶段运行与验证说明
+├── pyproject.toml            # Python 项目与依赖配置
 ├── docs/
 │   ├── prd/
 │   │   └── PRD.md            # 需求、阶段验收与学习目标
 │   ├── pdf/                  # 测试或使用的 PDF 文档
 │   │   └── HowToLiveBetter.pdf
-│   ├── learning/             # LlamaIndex 概念、技术取舍与学习复盘（计划）
-│   └── experiments/          # 可复现的实验配置、人工判断和结果记录（计划）
+│   ├── knowledge/            # LlamaIndex 概念、技术取舍与学习复盘
+│   └── experiments/          # 可复现的实验配置、人工判断和结果记录
 ├── src/
-│   └── rag/                  # Python 包，名称在初始化时确定
+│   └── rag/                  # Python 包
 │       ├── ingestion/        # Reader、文档加载与来源元数据
 │       ├── chunking/         # Node 解析与切片
 │       ├── indexing/         # 嵌入、索引构建与持久化

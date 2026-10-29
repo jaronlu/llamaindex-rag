@@ -6,8 +6,8 @@ from pathlib import Path
 from llama_index.core import Document
 from llama_index.core.schema import MetadataMode, TextNode
 
-from src.rag.chunking import chunk_documents
-from src.rag.chunking_cli import main
+from src.rag.chunking.split import chunk_documents
+from src.rag.cli.chunking import main
 
 
 class ChunkingTests(unittest.TestCase):

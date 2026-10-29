@@ -8,9 +8,9 @@ from unittest.mock import patch
 from pypdf import PdfWriter
 from pypdf._page import PageObject
 
-from src.rag.ingestion import load_pdf
-from src.rag.ingestion_config import PageStatus
-from src.rag.cli import main
+from src.rag.ingestion.pdf import load_pdf
+from src.rag.config.ingestion import PageStatus
+from src.rag.cli.loading import main
 
 
 class LoadingTests(unittest.TestCase):
