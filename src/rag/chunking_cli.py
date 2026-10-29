@@ -1,4 +1,4 @@
-"""Inspect page-bounded chunks and their source locations."""
+"""Inspect chunks and their source locations."""
 
 import argparse
 import sys
@@ -14,7 +14,7 @@ from .ingestion_config import DEFAULT_START_PAGE, MetadataKey, PageStatus
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="按页切片并显示完整原文和来源")
+    parser = argparse.ArgumentParser(description="切片并显示完整原文和来源")
     parser.add_argument("file", type=Path, help="PDF 文件路径")
     parser.add_argument("--start", type=int, default=DEFAULT_START_PAGE, help="起始物理页码")
     parser.add_argument("--end", type=int, help="结束物理页码（包含该页）")
@@ -29,12 +29,14 @@ def main(argv: list[str] | None = None) -> int:
         print(f"切片失败: {args.file}: {exc}", file=sys.stderr)
         return 1
     print(f"文件: {result.path}\n切片大小: {args.chunk_size} token；最大重叠: {args.chunk_overlap} token")
-    print("按物理页分别切片；按顺序展示相邻片段，跨页不重叠。")
+    print("连续页面合并切片；按顺序展示相邻片段及其覆盖页码。")
     tokenize = get_tokenizer()
     texts = [node.get_content(metadata_mode=MetadataMode.NONE) for node in nodes]
     lengths = [len(tokenize(text)) for text in texts]
     for index, (node, content, length) in enumerate(zip(nodes, texts, lengths), 1):
-        print(f"\n--- 片段 {index} | ID {node.node_id} | 物理页码 {node.metadata[MetadataKey.PAGE_NUMBER.value]} | {length} token | {len(content)} 字符 ---")
+        pages = node.metadata[MetadataKey.PAGE_NUMBERS.value]
+        location = str(pages[0]) if len(pages) == 1 else f"{pages[0]}–{pages[-1]}"
+        print(f"\n--- 片段 {index} | ID {node.node_id} | 物理页码 {location} | {length} token | {len(content)} 字符 ---")
         print(content)
     for page in result.pages:
         if page.status != PageStatus.SUCCESS:

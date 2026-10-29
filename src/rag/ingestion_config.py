@@ -9,7 +9,7 @@ class MetadataKey(StrEnum):
     FILE_NAME = "file_name"
     SOURCE_PATH = "source_path"
     SOURCE_ID = "source_id"
-    PAGE_NUMBER = "page_number"
+    PAGE_NUMBERS = "page_numbers"
     SOURCE_LOCATION = "source_location"
 
 

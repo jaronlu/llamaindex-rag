@@ -55,8 +55,7 @@ class PagePDFReader(BaseReader):
                         MetadataKey.FILE_NAME.value: path.name,
                         MetadataKey.SOURCE_PATH.value: str(path),
                         MetadataKey.SOURCE_ID.value: source_id,
-                        MetadataKey.PAGE_NUMBER.value: number,
-                        MetadataKey.SOURCE_LOCATION.value: f"物理页码 {number}",
+                        MetadataKey.PAGE_NUMBERS.value: [number],
                     },
                 )
                 pages.append(PageResult(number, PageStatus.SUCCESS if text.strip() else PageStatus.EMPTY, document))
