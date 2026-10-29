@@ -20,7 +20,6 @@ HF_MODEL_CACHE_PREFIX = "models--"
 HF_CACHE_COMPONENT_SEPARATOR = "--"
 SNAPSHOT_NAME_LENGTH_BYTES = 8
 SNAPSHOT_NAME_BYTEORDER: Literal["big"] = "big"
-SENTENCE_TRANSFORMER_MAX_SEQ_LENGTH_KEY = "max_seq_length"
 
 
 class IndexBuildPhase(StrEnum):
@@ -41,7 +40,6 @@ class IndexCommand(StrEnum):
 # 文件摘要计算的读取块大小，以及本阶段默认的本地推理设备。
 HASH_READ_SIZE = 1024 * 1024
 DEFAULT_EMBEDDING_DEVICE = "cpu"
-SENTENCE_TRANSFORMER_CONFIG_FILE = "sentence_bert_config.json"
 
 
 class ManifestKey(StrEnum):

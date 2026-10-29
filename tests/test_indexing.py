@@ -10,6 +10,14 @@ from src.rag.indexing.store import build_index, read_node
 
 
 class IndexingTests(unittest.TestCase):
+    def test_duplicate_node_ids_are_rejected_without_publication(self):
+        with tempfile.TemporaryDirectory() as temp:
+            location = Path(temp) / "index"
+            nodes = [TextNode(id_="same", text="first"), TextNode(id_="same", text="second")]
+            with self.assertRaisesRegex(ValueError, "重复.*ID"):
+                build_index(nodes, MockEmbedding(embed_dim=8), location, {})
+            self.assertFalse(location.exists())
+
     def test_persist_and_read_node_without_source_file(self):
         with tempfile.TemporaryDirectory() as temp:
             node = TextNode(text="原文内容", metadata={"file_name": "a.pdf", "source_path": "/a.pdf", "source_id": "a", "page_numbers": [2]})
@@ -45,6 +53,33 @@ class IndexConfigurationTests(unittest.TestCase):
             check_compatibility({"model": "a", "version": "1", "dimension": 8, "chunk_size": 128, "chunk_overlap": 32}, {"model": "a", "version": "2", "dimension": 8, "chunk_size": 128, "chunk_overlap": 32})
 
 class IndexCliTests(unittest.TestCase):
+    def test_preflight_failure_reports_unknown_total_and_unpublished(self):
+        import contextlib
+        import io
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            index = Path(temp) / "index"
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(main(["build", str(index), str(Path(temp) / "missing.pdf"), "--model-path", temp]), 1)
+            for text in ("向量化成功 0", "向量化失败 0", "未处理", "未知", "未发布"):
+                self.assertIn(text, output.getvalue())
+            self.assertFalse(index.exists())
+
+    def test_page_failure_includes_underlying_error(self):
+        import contextlib
+        import io
+        from unittest.mock import patch
+        from src.rag.cli.indexing import main
+        from src.rag.ingestion.pdf import LoadResult, PageResult
+        from src.rag.config.ingestion import PageStatus
+        with tempfile.TemporaryDirectory() as temp:
+            pdf = Path(temp) / "source.pdf"
+            pdf.write_bytes(b"pdf")
+            loaded = LoadResult(pdf, 1, [PageResult(1, PageStatus.FAILED, error="broken page")])
+            with patch("src.rag.cli.indexing.load_pdf", return_value=loaded), contextlib.redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(main(["build", str(Path(temp) / "index"), str(pdf), "--model-path", temp]), 1)
+            self.assertIn("broken page", output.getvalue())
+
     def test_read_command_displays_stored_node(self):
         import contextlib
         import io
@@ -109,14 +144,18 @@ class CoverageTests(unittest.TestCase):
             pdf.write_bytes(b"pdf")
             model_path = root / "models--a--b" / "snapshots" / "v1"
             model_path.mkdir(parents=True)
-            (model_path / "sentence_bert_config.json").write_text('{"max_seq_length": 512}')
+            (model_path / "config.json").write_text('{}')
             doc = Document(text="正文", metadata={"file_name": "source.pdf", "source_path": str(pdf), "source_id": "a", "page_numbers": [1]})
             loaded = LoadResult(pdf, 2, [PageResult(1, PageStatus.SUCCESS, doc), PageResult(2, PageStatus.EMPTY)])
             class Tokenizer:
                 def encode(self, text, **kwargs):
                     return [1]
+            from pydantic import PrivateAttr
+            class LocalEmbedding(MockEmbedding):
+                max_length: int = 512
+                _model: object = PrivateAttr(default_factory=lambda: type("LocalModel", (), {"tokenizer": Tokenizer(), "prompts": {"text": None}})())
             index = root / "index"
-            with patch("src.rag.cli.indexing.load_pdf", return_value=loaded), patch("transformers.AutoTokenizer.from_pretrained", return_value=Tokenizer()), patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", return_value=MockEmbedding(embed_dim=8)), contextlib.redirect_stdout(io.StringIO()) as out:
+            with patch("src.rag.cli.indexing.load_pdf", return_value=loaded), patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", return_value=LocalEmbedding(embed_dim=8)), contextlib.redirect_stdout(io.StringIO()) as out:
                 self.assertEqual(main(["build", str(index), str(pdf), "--model-path", str(model_path)]), 0)
             manifest = json.loads((index / "manifest.json").read_text())
             self.assertEqual(manifest["documents"][0]["empty_pages"], [2])

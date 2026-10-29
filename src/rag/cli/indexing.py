@@ -12,10 +12,9 @@ from llama_index.core.schema import MetadataMode
 from ..chunking.split import chunk_documents
 from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from ..config.indexing import (DEFAULT_EMBEDDING_DEVICE, DEFAULT_MODEL, DEFAULT_REVISION,
-                               HASH_READ_SIZE, MANIFEST_FILE, SENTENCE_TRANSFORMER_CONFIG_FILE,
-                               SENTENCE_TRANSFORMER_MAX_SEQ_LENGTH_KEY, IndexCommand, ManifestKey)
+                               HASH_READ_SIZE, MANIFEST_FILE, IndexCommand, ManifestKey)
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
-from ..indexing.store import build_index, read_node
+from ..indexing.store import IndexBuildError, build_index, read_node
 from ..indexing.model import snapshot_identity
 from ..ingestion.pdf import load_pdf
 
@@ -47,6 +46,9 @@ def main(argv: list[str] | None = None) -> int:
     read.add_argument("index", type=Path)
     read.add_argument("node_id")
     args = parser.parse_args(argv)
+    # 切片前无法确定待处理数量；发布后即使输出失败也不能报告为未发布。
+    node_count: int | None = None
+    published = False
     try:
         if args.command == IndexCommand.OVERVIEW:
             manifest = json.loads((args.index / MANIFEST_FILE).read_text(encoding="utf-8"))
@@ -82,9 +84,10 @@ def main(argv: list[str] | None = None) -> int:
         for path in paths:
             digest = file_hash(path)
             result = load_pdf(path, args.start, args.end)
-            failures = [page.number for page in result.pages if page.status == PageStatus.FAILED]
+            failures = [page for page in result.pages if page.status == PageStatus.FAILED]
             if failures:
-                raise ValueError(f"{path} 页面解析失败: {failures}")
+                details = "; ".join(f"第 {page.number} 页: {page.error or '原因未知'}" for page in failures)
+                raise ValueError(f"{path} 页面解析失败: {details}")
             empty = [page.number for page in result.pages if page.status == PageStatus.EMPTY]
             if empty:
                 print(f"{path} 空文本页: {empty}")
@@ -93,6 +96,7 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError(f"读取期间文件发生变化: {path}")
             versions.append({ManifestKey.PATH: str(path), ManifestKey.SHA256: digest, ManifestKey.START: args.start, ManifestKey.END: args.end or result.total_pages, ManifestKey.EMPTY_PAGES: empty, ManifestKey.TEXT_COVERAGE_COMPLETE: not empty})
         nodes = chunk_documents(documents, args.chunk_size, args.chunk_overlap)
+        node_count = len(nodes)
         if not nodes:
             raise ValueError("没有可索引的片段")
         model_path = args.model_path.expanduser().resolve(strict=True)
@@ -100,23 +104,34 @@ def main(argv: list[str] | None = None) -> int:
         for item in versions:
             item[ManifestKey.SOURCE_ID] = hashlib.sha256(item[ManifestKey.PATH].encode("utf-8")).hexdigest()
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
-        from transformers import AutoTokenizer
-        tokenizer = AutoTokenizer.from_pretrained(str(model_path), local_files_only=True)
-        maximum = int(json.loads((model_path / SENTENCE_TRANSFORMER_CONFIG_FILE).read_text())[SENTENCE_TRANSFORMER_MAX_SEQ_LENGTH_KEY])
+        model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_EMBEDDING_DEVICE, local_files_only=True)
+        # LlamaIndex 当前未公开底层 tokenizer；使用锁定版本的内部模型，
+        # 同时计入文本前缀和特殊 token，避免预检通过后推理静默截断。
+        tokenizer = model._model.tokenizer
+        maximum = model.max_length
+        if maximum is None:
+            raise ValueError("无法确定模型的 token 长度上限")
+        text_prompt = model._model.prompts.get("text") or ""
         for node in nodes:
             text = node.get_content(metadata_mode=MetadataMode.NONE)
-            if len(tokenizer.encode(text, add_special_tokens=True, truncation=False)) > maximum:
+            if len(tokenizer.encode(text_prompt + text, add_special_tokens=True, truncation=False)) > maximum:
                 raise ValueError(f"片段 {node.node_id} 超出模型 {maximum} token 上限；请减小切片大小后重试")
-        model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_EMBEDDING_DEVICE)
         if snapshot_identity(model_path) != identity:
             raise ValueError("模型快照加载期间发生变化，请重新运行")
         manifest = build_index(nodes, model, args.index, {**identity, ManifestKey.CHUNK_SIZE: args.chunk_size, ManifestKey.CHUNK_OVERLAP: args.chunk_overlap, ManifestKey.DOCUMENTS: versions})
+        published = True
         print(f"索引完成: {args.index.resolve()}\n模型: {identity[ManifestKey.MODEL]} @ {identity[ManifestKey.VERSION]}\n维度: {manifest[ManifestKey.DIMENSION]}；成功: {len(nodes)}；失败: 0")
         for node in nodes:
             print(f"片段 ID: {node.node_id} | 文件: {node.metadata.get(MetadataKey.SOURCE_PATH)} | 物理页: {node.metadata.get(MetadataKey.PAGE_NUMBERS)}")
         return 0
     except Exception as exc:
-        print(f"索引操作失败: {exc}", file=sys.stderr)
+        if args.command == IndexCommand.BUILD and published:
+            print(f"索引已发布，但输出失败: {exc}", file=sys.stderr)
+        elif args.command == IndexCommand.BUILD and not isinstance(exc, IndexBuildError):
+            remaining = node_count if node_count is not None else "未知"
+            print(f"索引构建失败：向量化成功 0，向量化失败 0，未处理 {remaining}；本次索引未发布。原因: {exc}", file=sys.stderr)
+        else:
+            print(f"索引操作失败: {exc}", file=sys.stderr)
         return 1
 
 

@@ -22,6 +22,10 @@ from ..config.indexing import (
 )
 
 
+class IndexBuildError(ValueError):
+    """包含向量化统计和发布状态的构建错误。"""
+
+
 def publish_index(staging: Path, destination: Path) -> None:
     """以禁止替换的系统调用原子发布目录。"""
     libc = ctypes.CDLL(None, use_errno=True)
@@ -54,11 +58,15 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
         raise ValueError(f"索引位置已存在: {location}；请使用新目录进行受控重建")
     if not nodes:
         raise ValueError("没有可索引的片段")
+    # 底层存储按节点 ID 索引，重复 ID 会覆盖先前片段并使统计失真。
+    if len({node.node_id for node in nodes}) != len(nodes):
+        raise ValueError("存在重复的片段 ID")
     location.parent.mkdir(parents=True, exist_ok=True)
     completed = 0
     dimension = None
     prepared = []
     phase = IndexBuildPhase.EMBEDDING
+    published = False
     try:
         for node in nodes:
             copy = node.model_copy(deep=True)
@@ -79,12 +87,17 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
             index.storage_context.persist(persist_dir=str(staging))
             manifest = {**config, ManifestKey.DIMENSION: dimension, ManifestKey.CHUNK_COUNT: len(nodes), ManifestKey.COMPLETE: True}
             (staging / MANIFEST_FILE).write_text(json.dumps(manifest, ensure_ascii=False, indent=2), encoding="utf-8")
+            # 发布完成后临时目录清理仍可能失败，须保留真实的发布状态。
             publish_index(staging, location)
+            published = True
         return manifest
     except Exception as exc:
+        if published:
+            raise IndexBuildError(f"索引已发布，但构建临时目录清理失败；向量化成功 {completed}。原因: {exc}") from exc
+        # 向量化逐个执行；发布阶段失败时所有片段均已向量化。
         failed = 1 if phase == IndexBuildPhase.EMBEDDING else 0
         remaining = len(nodes) - completed - failed
-        raise ValueError(f"{phase}失败：向量化成功 {completed}，向量化失败 {failed}，未处理 {remaining}；索引未发布、不可用。原因: {exc}") from exc
+        raise IndexBuildError(f"{phase}失败：向量化成功 {completed}，向量化失败 {failed}，未处理 {remaining}；索引未发布、不可用。原因: {exc}") from exc
 
 
 def read_node(location: Path, node_id: str) -> BaseNode:
