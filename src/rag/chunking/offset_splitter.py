@@ -2,10 +2,11 @@
 
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.node_parser.text.sentence import _Split
+from llama_index.core.schema import BaseNode, Document
 from pydantic import PrivateAttr
 
 
-class OffsetSentenceSplitter(SentenceSplitter):
+class _OffsetSentenceSplitter(SentenceSplitter):
     # 此适配器遵循已安装版本 SentenceSplitter 的私有合并约定。
     _offsets: list[tuple[int, int]] = PrivateAttr(default_factory=list)
     _split_text_value: str = PrivateAttr(default="")
@@ -55,9 +56,17 @@ class OffsetSentenceSplitter(SentenceSplitter):
             close()
         return chunks
 
-    def offsets(self, text: str, chunks: list[str]) -> list[tuple[int, int]]:
+    def _validated_offsets(self, text: str, chunks: list[str]) -> list[tuple[int, int]]:
         # 如果上游切分或后处理未保留原文，则拒绝处理；
         # 文段重复时，事后搜索切片无法确定位置。
         if self._split_text_value != text or len(chunks) != len(self._offsets) or any(text[start:end] != chunk for (start, end), chunk in zip(self._offsets, chunks)):
             raise ValueError("无法确定切片来源位置")
         return self._offsets
+
+
+def split_with_offsets(document: Document, chunk_size: int, chunk_overlap: int) -> tuple[list[BaseNode], list[tuple[int, int]]]:
+    """使用独立切分器一次性返回节点及其原文偏移量。"""
+    splitter = _OffsetSentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
+    nodes = splitter.get_nodes_from_documents([document])
+    offsets = splitter._validated_offsets(document.text, [node.get_content() for node in nodes])
+    return nodes, offsets

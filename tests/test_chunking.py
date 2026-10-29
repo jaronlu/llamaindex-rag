@@ -2,15 +2,35 @@ import contextlib
 import io
 import unittest
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor
 
 from llama_index.core import Document
 from llama_index.core.schema import MetadataMode, TextNode
 
 from src.rag.chunking.split import chunk_documents
+from src.rag.chunking.offset_splitter import split_with_offsets
 from src.rag.cli.chunking import main
 
 
 class ChunkingTests(unittest.TestCase):
+    def test_concurrent_splits_return_their_own_offsets(self):
+        texts = ["  First sentence. Second sentence.", "Another sentence.  "]
+        def split(text):
+            return split_with_offsets(Document(text=text), 30, 5)
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            results = list(executor.map(split, texts))
+        for text, (nodes, offsets) in zip(texts, results):
+            self.assertEqual(len(nodes), len(offsets))
+            self.assertTrue(nodes)
+            for node, (start, end) in zip(nodes, offsets):
+                self.assertEqual(text[start:end], node.get_content(metadata_mode=MetadataMode.NONE))
+
+    def test_boolean_page_numbers_are_rejected(self):
+        for value in (True, False):
+            doc = Document(text="text", metadata={"file_name": "a.pdf", "source_path": "/a.pdf", "source_id": "a", "page_numbers": [value]})
+            with self.subTest(value=value), self.assertRaisesRegex(ValueError, "页码"):
+                chunk_documents([doc])
+
     def test_consecutive_pages_form_cross_page_chunk_with_page_range(self):
         def page(number, text, source="a"):
             return Document(text=text, metadata={"file_name": source + ".pdf", "source_path": "/" + source + ".pdf", "source_id": source, "page_numbers": [number]})

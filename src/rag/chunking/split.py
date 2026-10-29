@@ -8,7 +8,7 @@ from pathlib import Path
 
 from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from ..config.ingestion import MetadataKey
-from .offset_splitter import OffsetSentenceSplitter
+from .offset_splitter import split_with_offsets
 
 
 def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHUNK_SIZE,
@@ -18,7 +18,6 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
     # 两者相等时合并窗口无法前进，重叠会退化为重复的文本块。
     if chunk_size <= 0 or chunk_overlap < 0 or chunk_overlap >= chunk_size:
         raise ValueError("切片大小必须大于 0，重叠量须大于等于 0 且小于切片大小")
-    splitter = OffsetSentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap)
     groups: list[list[Document]] = []
     for document in documents:
         metadata = document.metadata
@@ -33,6 +32,7 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
         if Path(metadata[MetadataKey.FILE_NAME.value]).suffix.lower() != ".pdf":
             raise ValueError("目前仅支持 PDF 来源切片")
         page_numbers = metadata.get(MetadataKey.PAGE_NUMBERS.value)
+        # bool 是 int 的子类，页码必须排除 True 和 False。
         if not isinstance(page_numbers, list) or len(page_numbers) != 1 or type(page_numbers[0]) is not int or page_numbers[0] < 1:
             raise ValueError("PDF 来源页码缺失或无效")
         if not document.text.strip():
@@ -84,9 +84,8 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
             source.metadata.pop(MetadataKey.PAGE_NUMBERS.value, None)
         source.excluded_embed_metadata_keys = list(metadata)
         source.excluded_llm_metadata_keys = list(metadata)
-        page_nodes = splitter.get_nodes_from_documents([source])
         # 替换解析器推断的偏移量，后者可能指向更早出现的重复切片。
-        offsets = splitter.offsets(source.text, [node.get_content() for node in page_nodes])
+        page_nodes, offsets = split_with_offsets(source, chunk_size, chunk_overlap)
         # 上述临时排除设置会被复制到每个节点，从而使来源键无法进入嵌入文本和 LLM 上下文。
         # 恢复调用方的设置，使来源信息贯穿检索和回答。
         for node, (start_char, end_char) in zip(page_nodes, offsets):
