@@ -1,5 +1,7 @@
 """将 PDF 页面加载为带有物理来源位置的 LlamaIndex 文档。"""
 
+import logging
+import time
 from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
@@ -9,6 +11,9 @@ from llama_index.core.readers.base import BaseReader
 from pypdf import PdfReader
 
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
+
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class PageResult:
@@ -34,6 +39,8 @@ class PagePDFReader(BaseReader):
 
     def load_pages(self, file: Path, start: int = DEFAULT_START_PAGE, end: int | None = None) -> LoadResult:
         """读取闭区间 [start, end]；逐页返回结果，不因单页失败中断。"""
+        started = time.monotonic()
+        logger.info("loading.start file=%s start=%s end=%s", file, start, end)
         # 展开 ~ 并解析为真实绝对路径；strict=True 使不存在的路径立即报错。
         path = Path(file).expanduser().resolve(strict=True)
         if not path.is_file() or path.suffix.lower() != ".pdf":
@@ -62,7 +69,9 @@ class PagePDFReader(BaseReader):
                 )
                 pages.append(PageResult(number, PageStatus.SUCCESS if text.strip() else PageStatus.EMPTY, document))
             except Exception as exc:
+                logger.exception("loading.page_failed file=%s page=%s", path, number)
                 pages.append(PageResult(number, PageStatus.FAILED, error=str(exc)))
+        logger.info("loading.complete file=%s total_pages=%s selected=%s success=%s empty=%s failed=%s duration_seconds=%.3f", path, total, len(pages), sum(p.status == PageStatus.SUCCESS for p in pages), sum(p.status == PageStatus.EMPTY for p in pages), sum(p.status == PageStatus.FAILED for p in pages), time.monotonic() - started)
         return LoadResult(path, total, pages)
 
     def load_data(self, file: Path, **kwargs) -> list[Document]:

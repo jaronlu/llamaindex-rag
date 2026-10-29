@@ -1,13 +1,20 @@
 """以人可读的方式检查 PDF 加载结果。"""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+from .logging import logged_command
 
 from ..ingestion.pdf import load_pdf
 from ..config.ingestion import DEFAULT_START_PAGE, PageStatus
 
 
+logger = logging.getLogger(__name__)
+
+
+@logged_command
 def main(argv: list[str] | None = None) -> int:
     """解析命令行参数，展示每页结果并返回进程状态码。"""
     parser = argparse.ArgumentParser(description="逐页加载 PDF 并显示原文及物理页码")
@@ -18,6 +25,7 @@ def main(argv: list[str] | None = None) -> int:
     try:
         result = load_pdf(args.file, args.start, args.end)
     except Exception as exc:
+        logger.exception("loading.failed file=%s", args.file)
         print(f"加载失败: {args.file}: {exc}", file=sys.stderr)
         return 1
     print(f"文件: {result.path}\nPDF 总页数: {result.total_pages}\n检查页数: {len(result.pages)}")

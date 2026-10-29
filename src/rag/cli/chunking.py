@@ -1,8 +1,11 @@
 """检查切片及其来源位置。"""
 
 import argparse
+import logging
 import sys
 from pathlib import Path
+
+from .logging import logged_command
 
 from llama_index.core.schema import MetadataMode
 from llama_index.core.utils import get_tokenizer
@@ -13,6 +16,10 @@ from ..ingestion.pdf import load_pdf
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 
 
+logger = logging.getLogger(__name__)
+
+
+@logged_command
 def main(argv: list[str] | None = None) -> int:
     """加载所选页面并展示切片、来源和长度统计。"""
     parser = argparse.ArgumentParser(description="切片并显示完整原文和来源")
@@ -27,6 +34,7 @@ def main(argv: list[str] | None = None) -> int:
         documents = [p.document for p in result.pages if p.status == PageStatus.SUCCESS and p.document is not None]
         nodes = chunk_documents(documents, args.chunk_size, args.chunk_overlap)
     except Exception as exc:
+        logger.exception("chunking.failed file=%s", args.file)
         print(f"切片失败: {args.file}: {exc}", file=sys.stderr)
         return 1
     print(f"文件: {result.path}\n切片大小: {args.chunk_size} token；最大重叠: {args.chunk_overlap} token")

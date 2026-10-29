@@ -3,6 +3,8 @@
 import ctypes
 import errno
 import json
+import logging
+import time
 import os
 import sys
 import math
@@ -22,8 +24,15 @@ from ..config.indexing import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
 class IndexBuildError(ValueError):
     """包含向量化统计和发布状态的构建错误。"""
+
+    def __init__(self, message: str, *, published: bool) -> None:
+        super().__init__(message)
+        self.published = published
 
 
 def publish_index(staging: Path, destination: Path) -> None:
@@ -54,6 +63,8 @@ def publish_index(staging: Path, destination: Path) -> None:
 def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location: Path,
                 config: dict[str, Any]) -> dict[str, Any]:
     """在临时目录完成构建，成功后发布；禁止覆盖已有索引。"""
+    started = time.monotonic()
+    logger.info("index.start location=%s chunks=%s", location, len(nodes))
     location = Path(location).expanduser().absolute()
     if location.exists():
         raise ValueError(f"索引位置已存在: {location}；请使用新目录进行受控重建")
@@ -82,6 +93,8 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
             copy.embedding = vector
             prepared.append(copy)
             completed += 1
+            logger.debug("index.embedding_progress completed=%s total=%s node_id=%s", completed, len(nodes), node.node_id)
+        logger.info("index.embedding_complete completed=%s dimension=%s", completed, dimension)
         phase = IndexBuildPhase.PUBLISHING
         with tempfile.TemporaryDirectory(prefix=INDEX_BUILD_TEMP_PREFIX, dir=location.parent) as temp:
             staging = Path(temp) / INDEX_STAGING_DIR
@@ -94,14 +107,18 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
             # 发布完成后临时目录清理仍可能失败，须保留真实的发布状态。
             publish_index(staging, location)
             published = True
+            logger.info("index.published location=%s completed=%s", location, completed)
+        logger.info("index.complete location=%s duration_seconds=%.3f", location, time.monotonic() - started)
         return manifest
     except Exception as exc:
+        failed_count = 1 if phase == IndexBuildPhase.EMBEDDING and not published else 0
+        logger.exception("index.failed location=%s phase=%s completed=%s failed=%s remaining=%s published=%s", location, phase, completed, failed_count, len(nodes) - completed - failed_count, published)
         if published:
-            raise IndexBuildError(f"索引已发布，但构建临时目录清理失败；向量化成功 {completed}。原因: {exc}") from exc
+            raise IndexBuildError(f"索引已发布，但构建临时目录清理失败；向量化成功 {completed}。原因: {exc}", published=True) from exc
         # 向量化逐个执行；发布阶段失败时所有片段均已向量化。
         failed = 1 if phase == IndexBuildPhase.EMBEDDING else 0
         remaining = len(nodes) - completed - failed
-        raise IndexBuildError(f"{phase}失败：向量化成功 {completed}，向量化失败 {failed}，未处理 {remaining}；索引未发布、不可用。原因: {exc}") from exc
+        raise IndexBuildError(f"{phase}失败：向量化成功 {completed}，向量化失败 {failed}，未处理 {remaining}；索引未发布、不可用。原因: {exc}", published=False) from exc
 
 
 def read_node(location: Path, node_id: str) -> BaseNode:

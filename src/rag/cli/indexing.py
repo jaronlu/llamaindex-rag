@@ -1,10 +1,13 @@
 """构建本地向量索引并查看保存的片段。"""
 
 import argparse
+import logging
 import hashlib
 import json
 import sys
 from pathlib import Path
+
+from .logging import logged_command
 
 from llama_index.core import Document
 from llama_index.core.schema import MetadataMode
@@ -28,6 +31,10 @@ def file_hash(path: Path) -> str:
     return digest.hexdigest()
 
 
+logger = logging.getLogger(__name__)
+
+
+@logged_command
 def main(argv: list[str] | None = None) -> int:
     """运行构建或片段回查命令。"""
     parser = argparse.ArgumentParser(description="本地索引构建和片段回查")
@@ -107,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("没有可索引的片段")
         model_path = args.model_path.expanduser().resolve(strict=True)
         identity = snapshot_identity(model_path)
+        logger.info("index.configuration model=%s version=%s chunk_size=%s overlap=%s", identity[ManifestKey.MODEL], identity[ManifestKey.VERSION], args.chunk_size, args.chunk_overlap)
         for item in versions:
             item[ManifestKey.SOURCE_ID] = hashlib.sha256(item[ManifestKey.PATH].encode("utf-8")).hexdigest()
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
@@ -131,6 +139,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"片段 ID: {node.node_id} | 文件: {node.metadata.get(MetadataKey.SOURCE_PATH)} | 物理页: {node.metadata.get(MetadataKey.PAGE_NUMBERS)}")
         return 0
     except Exception as exc:
+        actual_published = published or (isinstance(exc, IndexBuildError) and exc.published)
+        logger.exception("index.command_failed command=%s index=%s published=%s", args.command, args.index, actual_published)
         if args.command == IndexCommand.BUILD and published:
             print(f"索引已发布，但输出失败: {exc}", file=sys.stderr)
         elif args.command == IndexCommand.BUILD and not isinstance(exc, IndexBuildError):

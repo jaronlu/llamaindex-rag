@@ -1,5 +1,7 @@
 """将源文档切分为可溯源的 LlamaIndex 节点。"""
 
+import logging
+import time
 from collections.abc import Sequence
 
 from llama_index.core import Document
@@ -11,10 +13,15 @@ from ..config.ingestion import MetadataKey
 from .offset_splitter import split_with_offsets
 
 
+logger = logging.getLogger(__name__)
+
+
 def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHUNK_SIZE,
                     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP) -> list[BaseNode]:
     """将页面文档转换为带来源的节点；大小和重叠以 tokenizer 的 token 计。"""
 
+    started = time.monotonic()
+    logger.info("chunking.start documents=%s chunk_size=%s overlap=%s", len(documents), chunk_size, chunk_overlap)
     # 此限制比允许 chunk_overlap == chunk_size 的 SentenceSplitter 更严格。
     # 两者相等时合并窗口无法前进，重叠会退化为重复的文本块。
     if chunk_size <= 0 or chunk_overlap < 0 or chunk_overlap >= chunk_size:
@@ -110,4 +117,5 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
             if index + 1 < len(page_nodes):
                 node.relationships[NodeRelationship.NEXT] = page_nodes[index + 1].as_related_node_info()
         nodes.extend(page_nodes)
+    logger.info("chunking.complete chunks=%s duration_seconds=%.3f", len(nodes), time.monotonic() - started)
     return nodes
