@@ -8,7 +8,7 @@ from llama_index.core import Document
 from llama_index.core.readers.base import BaseReader
 from pypdf import PdfReader
 
-from .ingestion_config import PageStatus
+from .ingestion_config import DEFAULT_START_PAGE, MetadataKey, PageStatus
 
 @dataclass
 class PageResult:
@@ -28,7 +28,7 @@ class LoadResult:
 class PagePDFReader(BaseReader):
     """Read pages independently so one extraction failure remains visible."""
 
-    def load_pages(self, file: Path, start: int = 1, end: int | None = None) -> LoadResult:
+    def load_pages(self, file: Path, start: int = DEFAULT_START_PAGE, end: int | None = None) -> LoadResult:
         path = Path(file).expanduser().resolve(strict=True)
         if not path.is_file() or path.suffix.lower() != ".pdf":
             raise ValueError(f"不是有效的 PDF 文件: {path}")
@@ -44,8 +44,12 @@ class PagePDFReader(BaseReader):
                 text = reader.pages[number - 1].extract_text() or ""
                 document = Document(
                     text=text,
-                    metadata={"file_name": path.name, "source_path": str(path),
-                              "source_id": source_id, "page_number": number},
+                    metadata={
+                        MetadataKey.FILE_NAME.value: path.name,
+                        MetadataKey.SOURCE_PATH.value: str(path),
+                        MetadataKey.SOURCE_ID.value: source_id,
+                        MetadataKey.PAGE_NUMBER.value: number,
+                    },
                 )
                 pages.append(PageResult(number, PageStatus.SUCCESS if text.strip() else PageStatus.EMPTY, document))
             except Exception as exc:
@@ -60,5 +64,5 @@ class PagePDFReader(BaseReader):
         return [page.document for page in result.pages if page.document is not None]
 
 
-def load_pdf(path: Path, start: int = 1, end: int | None = None) -> LoadResult:
+def load_pdf(path: Path, start: int = DEFAULT_START_PAGE, end: int | None = None) -> LoadResult:
     return PagePDFReader().load_pages(path, start, end)
