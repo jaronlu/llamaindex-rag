@@ -5,6 +5,8 @@ from typing import Literal
 
 DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
 DEFAULT_REVISION = "7999e1d3359715c523056ef9478215996d62a620"
+# 经验默认值仍须经过所选模型的逐片 token 校验。
+DEFAULT_INDEX_CHUNK_SIZE = 384
 
 # 系统调用 ABI 定义的值，不随用户配置变化。
 DARWIN_RENAME_EXCL = 0x4

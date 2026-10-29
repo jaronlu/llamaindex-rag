@@ -10,8 +10,8 @@ from llama_index.core import Document
 from llama_index.core.schema import MetadataMode
 
 from ..chunking.split import chunk_documents
-from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
-from ..config.indexing import (DEFAULT_EMBEDDING_DEVICE, DEFAULT_MODEL, DEFAULT_REVISION,
+from ..config.chunking import DEFAULT_CHUNK_OVERLAP
+from ..config.indexing import (DEFAULT_EMBEDDING_DEVICE, DEFAULT_INDEX_CHUNK_SIZE, DEFAULT_MODEL, DEFAULT_REVISION,
                                HASH_READ_SIZE, MANIFEST_FILE, IndexCommand, ManifestKey)
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 from ..indexing.store import IndexBuildError, build_index, read_node
@@ -37,7 +37,7 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("files", type=Path, nargs="+")
     build.add_argument("--start", type=int, default=DEFAULT_START_PAGE)
     build.add_argument("--end", type=int)
-    build.add_argument("--chunk-size", type=int, default=DEFAULT_CHUNK_SIZE)
+    build.add_argument("--chunk-size", type=int, default=DEFAULT_INDEX_CHUNK_SIZE)
     build.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP)
     build.add_argument("--model-path", type=Path, required=True, help=f"Hugging Face 缓存快照目录；示例 {DEFAULT_MODEL} @ {DEFAULT_REVISION}")
     overview = sub.add_parser(IndexCommand.OVERVIEW, help="查看索引中所有文档的文本覆盖情况")
@@ -51,10 +51,13 @@ def main(argv: list[str] | None = None) -> int:
     published = False
     try:
         if args.command == IndexCommand.OVERVIEW:
+            if not args.index.exists():
+                raise ValueError(f"索引不存在: {args.index}")
             manifest = json.loads((args.index / MANIFEST_FILE).read_text(encoding="utf-8"))
             if manifest.get(ManifestKey.COMPLETE) is not True:
                 raise ValueError("索引不完整，无法查看")
             print(f"索引: {args.index}；片段数: {manifest.get(ManifestKey.CHUNK_COUNT, '未知')}")
+            print(f"模型: {manifest.get(ManifestKey.MODEL, '未知')} @ {manifest.get(ManifestKey.VERSION, '未知')}；维度: {manifest.get(ManifestKey.DIMENSION, '未知')}；切片大小: {manifest.get(ManifestKey.CHUNK_SIZE, '未知')}；重叠: {manifest.get(ManifestKey.CHUNK_OVERLAP, '未知')}")
             for document in manifest.get(ManifestKey.DOCUMENTS, []):
                 coverage = "完整" if document.get(ManifestKey.TEXT_COVERAGE_COMPLETE) is True else "不完整或未知"
                 print(f"文件: {document.get(ManifestKey.PATH, '缺失')} | 物理页: {document.get(ManifestKey.START, '?')}–{document.get(ManifestKey.END, '?')} | 文本覆盖: {coverage} | 空文本页: {document.get(ManifestKey.EMPTY_PAGES, '未知')}")
@@ -114,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
         text_prompt = model._model.prompts.get("text") or ""
         for node in nodes:
             text = node.get_content(metadata_mode=MetadataMode.NONE)
-            if len(tokenizer.encode(text_prompt + text, add_special_tokens=True, truncation=False)) > maximum:
+            if len(tokenizer.encode(text_prompt + text, add_special_tokens=True, truncation=False, verbose=False)) > maximum:
                 raise ValueError(f"片段 {node.node_id} 超出模型 {maximum} token 上限；请减小切片大小后重试")
         if snapshot_identity(model_path) != identity:
             raise ValueError("模型快照加载期间发生变化，请重新运行")

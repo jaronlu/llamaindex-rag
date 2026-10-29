@@ -208,6 +208,33 @@ class PublicationRaceTests(unittest.TestCase):
             self.assertEqual(list(target.iterdir()), [])
 
 class IndexOverviewTests(unittest.TestCase):
+    def test_overview_reports_index_configuration(self):
+        import contextlib
+        import io
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            index = Path(temp) / 'index'
+            build_index([TextNode(text='正文')], MockEmbedding(embed_dim=8), index,
+                        {'model': 'example', 'version': 'v1', 'chunk_size': 128, 'chunk_overlap': 32})
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['overview', str(index)]), 0)
+            for value in ('example', 'v1', '128', '32', '8'):
+                self.assertIn(value, output.getvalue())
+
+    def test_missing_index_and_node_have_clear_errors(self):
+        import contextlib
+        import io
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            index = Path(temp) / 'index'
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(main(['overview', str(index)]), 1)
+            self.assertIn('索引不存在', output.getvalue())
+            build_index([TextNode(text='正文')], MockEmbedding(embed_dim=8), index, {})
+            with contextlib.redirect_stderr(io.StringIO()) as output:
+                self.assertEqual(main(['read', str(index), 'missing']), 1)
+            self.assertIn('片段不存在', output.getvalue())
+
     def test_overview_shows_documents_without_nodes_after_reload(self):
         import contextlib
         import io

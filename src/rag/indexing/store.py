@@ -102,11 +102,16 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
 
 def read_node(location: Path, node_id: str) -> BaseNode:
     """从持久化文档库查回指定片段，不读取源 PDF。"""
+    if not location.exists():
+        raise ValueError(f"索引不存在: {location}")
     manifest = json.loads((location / MANIFEST_FILE).read_text(encoding="utf-8"))
     if manifest.get(ManifestKey.COMPLETE) is not True:
         raise ValueError("索引不完整，无法读取")
     context = StorageContext.from_defaults(persist_dir=str(location))
-    return context.docstore.get_node(node_id)
+    node = context.docstore.get_node(node_id, raise_error=False)
+    if node is None:
+        raise ValueError(f"片段不存在: {node_id}")
+    return node
 
 
 def check_compatibility(saved: dict[str, Any], expected: dict[str, Any]) -> None:
