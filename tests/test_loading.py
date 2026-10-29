@@ -29,7 +29,6 @@ class LoadingTests(unittest.TestCase):
             document = result.pages[0].document
             assert document is not None
             self.assertEqual(document.metadata["page_numbers"], [2])
-            self.assertNotIn("source_location", document.metadata)
             self.assertEqual(document.metadata["source_path"], str(path.resolve()))
 
     def test_one_page_failure_does_not_hide_other_pages(self):

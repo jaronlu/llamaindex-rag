@@ -10,7 +10,6 @@ class MetadataKey(StrEnum):
     SOURCE_PATH = "source_path"
     SOURCE_ID = "source_id"
     PAGE_NUMBERS = "page_numbers"
-    SOURCE_LOCATION = "source_location"
 
 
 class PageStatus(StrEnum):

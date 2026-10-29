@@ -22,32 +22,26 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
     groups: list[list[Document]] = []
     for document in documents:
         metadata = document.metadata
-        # PAGE_NUMBERS is excluded on purpose: PDFs locate by physical page while other
-        # formats use sections or offsets, so this layer must not bind to one format.
+        if "source_location" in metadata:
+            raise ValueError("不再支持 source_location；PDF 来源请使用 page_numbers")
         required = (MetadataKey.FILE_NAME, MetadataKey.SOURCE_PATH, MetadataKey.SOURCE_ID)
         # Requiring a non-empty string per key catches missing keys, non-string values
         # and blank placeholders; whether a location is real is the writer's job.
         if not all(isinstance(metadata.get(key.value), str) and metadata[key.value].strip()
                    for key in required):
             raise ValueError("来源身份或定位信息缺失，无法切片")
-        is_pdf = Path(metadata[MetadataKey.FILE_NAME.value]).suffix.lower() == ".pdf"
+        if Path(metadata[MetadataKey.FILE_NAME.value]).suffix.lower() != ".pdf":
+            raise ValueError("目前仅支持 PDF 来源切片")
         page_numbers = metadata.get(MetadataKey.PAGE_NUMBERS.value)
-        if is_pdf:
-            if not isinstance(page_numbers, list) or len(page_numbers) != 1 or type(page_numbers[0]) is not int or page_numbers[0] < 1:
-                raise ValueError("PDF 来源页码缺失或无效")
-            # PDF page numbers are authoritative; do not retain a conflicting label.
-            document = document.model_copy(deep=True)
-            document.metadata.pop(MetadataKey.SOURCE_LOCATION.value, None)
-            metadata = document.metadata
-        elif not isinstance(metadata.get(MetadataKey.SOURCE_LOCATION.value), str) or not metadata[MetadataKey.SOURCE_LOCATION.value].strip():
-            raise ValueError("来源定位信息缺失，无法切片")
+        if not isinstance(page_numbers, list) or len(page_numbers) != 1 or type(page_numbers[0]) is not int or page_numbers[0] < 1:
+            raise ValueError("PDF 来源页码缺失或无效")
         if not document.text.strip():
             continue
         page = (page_numbers[0] if isinstance(page_numbers, list) and len(page_numbers) == 1
                 and type(page_numbers[0]) is int and page_numbers[0] > 0 else None)
         previous = groups[-1][-1] if groups else None
         previous_pages = previous.metadata.get(MetadataKey.PAGE_NUMBERS.value) if previous else None
-        ignored = {MetadataKey.PAGE_NUMBERS.value, MetadataKey.SOURCE_LOCATION.value}
+        ignored = {MetadataKey.PAGE_NUMBERS.value}
         # Only consecutive pages with matching source metadata and rendering settings
         # may share a chunk; gaps and differing sources keep separate boundaries.
         same_source = previous is not None and (
@@ -89,7 +83,6 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
                 offset += len(page_text)
             source.set_content("".join(parts))
             source.metadata.pop(MetadataKey.PAGE_NUMBERS.value, None)
-            source.metadata.pop(MetadataKey.SOURCE_LOCATION.value, None)
         source.excluded_embed_metadata_keys = list(metadata)
         source.excluded_llm_metadata_keys = list(metadata)
         page_nodes = splitter.get_nodes_from_documents([source])
