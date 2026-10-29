@@ -8,11 +8,12 @@ from llama_index.core import Document
 from llama_index.core.readers.base import BaseReader
 from pypdf import PdfReader
 
+from .ingestion_config import PageStatus
 
 @dataclass
 class PageResult:
     number: int
-    status: str
+    status: PageStatus
     document: Document | None = None
     error: str | None = None
 
@@ -46,14 +47,14 @@ class PagePDFReader(BaseReader):
                     metadata={"file_name": path.name, "source_path": str(path),
                               "source_id": source_id, "page_number": number},
                 )
-                pages.append(PageResult(number, "success" if text.strip() else "empty", document))
+                pages.append(PageResult(number, PageStatus.SUCCESS if text.strip() else PageStatus.EMPTY, document))
             except Exception as exc:
-                pages.append(PageResult(number, "failed", error=str(exc)))
+                pages.append(PageResult(number, PageStatus.FAILED, error=str(exc)))
         return LoadResult(path, total, pages)
 
     def load_data(self, file: Path, **kwargs) -> list[Document]:
         result = self.load_pages(file, **kwargs)
-        failures = [page for page in result.pages if page.status == "failed"]
+        failures = [page for page in result.pages if page.status == PageStatus.FAILED]
         if failures:
             raise ValueError("页面解析失败: " + ", ".join(str(p.number) for p in failures))
         return [page.document for page in result.pages if page.document is not None]

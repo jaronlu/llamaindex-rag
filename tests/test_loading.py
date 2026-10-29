@@ -9,6 +9,7 @@ from pypdf import PdfWriter
 from pypdf._page import PageObject
 
 from src.rag.ingestion import load_pdf
+from src.rag import ingestion
 from src.rag.cli import main
 
 
@@ -24,6 +25,7 @@ class LoadingTests(unittest.TestCase):
             self.assertEqual(result.total_pages, 3)
             self.assertEqual([page.number for page in result.pages], [2, 3])
             self.assertTrue(all(page.status == "empty" for page in result.pages))
+            self.assertIs(result.pages[0].status, ingestion.PageStatus.EMPTY)
             document = result.pages[0].document
             assert document is not None
             self.assertEqual(document.metadata["page_number"], 2)

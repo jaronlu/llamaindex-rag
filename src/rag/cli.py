@@ -5,6 +5,7 @@ import sys
 from pathlib import Path
 
 from .ingestion import load_pdf
+from .ingestion_config import PageStatus
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -21,9 +22,9 @@ def main(argv: list[str] | None = None) -> int:
     print(f"文件: {result.path}\nPDF 总页数: {result.total_pages}\n检查页数: {len(result.pages)}")
     for page in result.pages:
         print(f"\n--- 物理页码 {page.number} ---")
-        if page.status == "failed":
+        if page.status == PageStatus.FAILED:
             print(f"解析失败: {page.error}")
-        elif page.status == "empty":
+        elif page.status == PageStatus.EMPTY:
             print("无可提取文本")
         elif page.document is not None:
             print(page.document.text)
@@ -31,9 +32,9 @@ def main(argv: list[str] | None = None) -> int:
             print("解析失败: 缺少页面文档", file=sys.stderr)
             return 1
     counts = {status: sum(page.status == status for page in result.pages)
-              for status in ("success", "empty", "failed")}
-    print(f"\n统计: 成功 {counts['success']} 页，空文本 {counts['empty']} 页，失败 {counts['failed']} 页")
-    return 1 if counts["failed"] else 0
+              for status in PageStatus}
+    print(f"\n统计: 成功 {counts[PageStatus.SUCCESS]} 页，空文本 {counts[PageStatus.EMPTY]} 页，失败 {counts[PageStatus.FAILED]} 页")
+    return 1 if counts[PageStatus.FAILED] else 0
 
 
 if __name__ == "__main__":
