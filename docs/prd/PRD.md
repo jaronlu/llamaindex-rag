@@ -199,10 +199,11 @@ PDF → 文档加载 → 文本切片 → 向量化与索引 → 检索 → 重�
 ```text
 LlamaIndex_RAG/
 ├── AGENTS.md                 # 项目开发约定
-├── PRD.md                    # 需求、阶段验收与学习目标
 ├── README.md                 # 安装、配置、各阶段运行与验证说明（计划）
 ├── pyproject.toml            # Python 项目与依赖配置（计划）
 ├── docs/
+│   ├── prd/
+│   │   └── PRD.md            # 需求、阶段验收与学习目标
 │   ├── pdf/                  # 测试或使用的 PDF 文档
 │   │   └── HowToLiveBetter.pdf
 │   ├── learning/             # LlamaIndex 概念、技术取舍与学习复盘（计划）
