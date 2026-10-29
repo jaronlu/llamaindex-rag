@@ -1,7 +1,10 @@
+import tempfile
+import os
 import contextlib
 import io
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 
 from llama_index.core import Document
@@ -10,6 +13,15 @@ from llama_index.core.schema import MetadataMode, TextNode
 from src.rag.chunking.split import chunk_documents
 from src.rag.chunking.offset_splitter import split_with_offsets
 from src.rag.cli.chunking import main
+
+
+def setUpModule():
+    """将测试运行日志与用户日志隔离。"""
+    temp = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(temp.cleanup)
+    env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
 
 
 class ChunkingTests(unittest.TestCase):

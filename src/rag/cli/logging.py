@@ -50,6 +50,15 @@ class RunFilter(logging.Filter):
         return True
 
 
+class RunFormatter(logging.Formatter):
+    """为多行记录的每一行保留运行标识。"""
+
+    def format(self, record: logging.LogRecord) -> str:
+        formatted = super().format(record)
+        lines = formatted.splitlines()
+        return "\n".join([lines[0], *(f"run_id={getattr(record, 'run_id')} {line}" for line in lines[1:])])
+
+
 class ReportingFileHandler(RotatingFileHandler):
     """写入失败时提示用户，不改变业务操作的结果。"""
 
@@ -94,7 +103,7 @@ def logged_command(function: Callable[P, int]) -> Callable[P, int]:
                 try:
                     path.parent.mkdir(parents=True, exist_ok=True)
                     handler = ReportingFileHandler(path, maxBytes=LOG_MAX_BYTES, backupCount=LOG_BACKUP_COUNT, encoding='utf-8')
-                    handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s run_id=%(run_id)s %(name)s %(message)s'))
+                    handler.setFormatter(RunFormatter('%(asctime)s %(levelname)s run_id=%(run_id)s %(name)s %(message)s'))
                     handler.addFilter(RunFilter(path_key))
                     logger.addHandler(handler)
                     _handlers[path_key] = handler, 1
@@ -106,7 +115,7 @@ def logged_command(function: Callable[P, int]) -> Callable[P, int]:
         try:
             logger.info('command.start command=%s', function.__module__)
             result = function(*args, **kwargs)
-            logger.info('command.complete command=%s exit_code=%s duration_seconds=%.3f', function.__module__, result, time.monotonic() - start)
+            logger.log(logging.INFO if result == 0 else logging.WARNING, 'command.finished command=%s exit_code=%s duration_seconds=%.3f', function.__module__, result, time.monotonic() - start)
             return result
         except BaseException:
             logger.exception('command.failed command=%s duration_seconds=%.3f', function.__module__, time.monotonic() - start)

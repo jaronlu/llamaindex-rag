@@ -10,6 +10,15 @@ from src.rag.cli.loading import main as load_main
 from src.rag.cli.chunking import main as chunk_main
 
 
+def setUpModule():
+    """将测试运行日志与用户日志隔离。"""
+    temp = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(temp.cleanup)
+    env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
+
+
 class LoggingTests(unittest.TestCase):
     def test_cli_records_correlated_stages_without_document_text(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -21,7 +30,7 @@ class LoggingTests(unittest.TestCase):
             self.assertIn('command.start', log)
             self.assertIn('loading.complete', log)
             self.assertIn('chunking.complete', log)
-            self.assertIn('command.complete', log)
+            self.assertIn('command.finished', log)
             ids = {line.split('run_id=')[1].split()[0] for line in log.splitlines() if 'run_id=' in line}
             self.assertEqual(len(ids), 1)
             self.assertNotIn(next(line for line in output.getvalue().splitlines() if len(line) > 80 and not line.startswith(('文件:', '---'))), log)
@@ -181,6 +190,7 @@ class LoggingBoundaryTests(unittest.TestCase):
             self.assertIn('索引已发布', err.getvalue())
             command_line = next(line for line in log.read_text().splitlines() if 'index.command_failed' in line)
             self.assertIn('published=True', command_line)
+            self.assertEqual(log.read_text().count('Traceback (most recent call last):'), 1)
 
     def test_external_library_logs_still_reach_callers_during_command(self):
         import logging
@@ -243,3 +253,35 @@ class LoggingBoundaryTests(unittest.TestCase):
             parent = next(line for line in lines if 'parent event' in line)
             worker = next(line for line in lines if 'worker event' in line)
             self.assertEqual(parent.split('run_id=')[1].split()[0], worker.split('run_id=')[1].split()[0])
+
+
+class LogReadabilityTests(unittest.TestCase):
+    def test_failure_finished_is_warning_and_all_stack_lines_have_run_id(self):
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / 'run.log'
+            with patch.dict(os.environ, {'RAG_LOG_FILE': str(log)}), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(load_main(['missing.pdf']), 1)
+            lines = log.read_text().splitlines()
+            run_id = lines[0].split('run_id=')[1].split()[0]
+            self.assertTrue(all(f'run_id={run_id}' in line for line in lines))
+            self.assertTrue(any('WARNING' in line and 'command.finished' in line and 'exit_code=1' in line for line in lines))
+            self.assertTrue(any('FileNotFoundError' in line for line in lines))
+
+    def test_overview_records_operation_and_target(self):
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / 'run.log'
+            index = Path(temp) / 'missing-index'
+            with patch.dict(os.environ, {'RAG_LOG_FILE': str(log)}), contextlib.redirect_stderr(io.StringIO()):
+                self.assertEqual(main(['overview', str(index)]), 1)
+            self.assertIn(f'index.operation command=overview index={index}', log.read_text())
+
+    def test_other_test_modules_do_not_write_to_configured_log(self):
+        import subprocess
+        import sys
+        with tempfile.TemporaryDirectory() as temp:
+            log = Path(temp) / 'user.log'
+            env = {**os.environ, 'RAG_LOG_FILE': str(log)}
+            result = subprocess.run([sys.executable, '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'test_loading.py'], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(log.exists())

@@ -1,12 +1,23 @@
+import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from llama_index.core import StorageContext
 from llama_index.core.embeddings import MockEmbedding
 from llama_index.core.schema import TextNode
 
 from src.rag.indexing.store import build_index, read_node
+
+
+def setUpModule():
+    """将测试运行日志与用户日志隔离。"""
+    temp = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(temp.cleanup)
+    env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
 
 
 class IndexingTests(unittest.TestCase):

@@ -1,3 +1,4 @@
+import os
 import contextlib
 import io
 import tempfile
@@ -11,6 +12,15 @@ from pypdf._page import PageObject
 from src.rag.ingestion.pdf import load_pdf
 from src.rag.config.ingestion import PageStatus
 from src.rag.cli.loading import main
+
+
+def setUpModule():
+    """将测试运行日志与用户日志隔离。"""
+    temp = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(temp.cleanup)
+    env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
 
 
 class LoadingTests(unittest.TestCase):

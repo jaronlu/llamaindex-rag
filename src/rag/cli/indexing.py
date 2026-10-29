@@ -53,6 +53,7 @@ def main(argv: list[str] | None = None) -> int:
     read.add_argument("index", type=Path)
     read.add_argument("node_id")
     args = parser.parse_args(argv)
+    logger.info("index.operation command=%s index=%s", args.command, args.index)
     # 切片前无法确定待处理数量；发布后即使输出失败也不能报告为未发布。
     node_count: int | None = None
     published = False
@@ -140,7 +141,10 @@ def main(argv: list[str] | None = None) -> int:
         return 0
     except Exception as exc:
         actual_published = published or (isinstance(exc, IndexBuildError) and exc.published)
-        logger.exception("index.command_failed command=%s index=%s published=%s", args.command, args.index, actual_published)
+        if isinstance(exc, IndexBuildError):
+            logger.error("index.command_failed command=%s index=%s published=%s reason=%s", args.command, args.index, actual_published, exc)
+        else:
+            logger.exception("index.command_failed command=%s index=%s published=%s", args.command, args.index, actual_published)
         if args.command == IndexCommand.BUILD and published:
             print(f"索引已发布，但输出失败: {exc}", file=sys.stderr)
         elif args.command == IndexCommand.BUILD and not isinstance(exc, IndexBuildError):
