@@ -30,9 +30,9 @@ class PagePDFReader(BaseReader):
 
     def load_pages(self, file: Path, start: int = DEFAULT_START_PAGE, end: int | None = None) -> LoadResult:
         """
-        expanduser()：把 ~/docs/a.pdf 展开成真实家目录
-        resolve()：转成绝对路径并消解 .. / 符号链接。
-        strict=True：路径不存在时直接抛 FileNotFoundError。
+        expanduser(): expand ~/docs/a.pdf to the real home directory.
+        resolve(): make the path absolute and resolve .. and symlinks.
+        strict=True: raise FileNotFoundError immediately if the path does not exist.
         """
 
         path = Path(file).expanduser().resolve(strict=True)
@@ -47,7 +47,7 @@ class PagePDFReader(BaseReader):
         pages = []
         for number in range(start, end + 1):
             try:
-                # extract_text()纯文本层提取。扫描版 PDF（图片页）会返回空串
+                # extract_text() reads only the plain text layer; scanned PDFs (image pages) yield an empty string.
                 text = reader.pages[number - 1].extract_text() or ""
                 document = Document(
                     text=text,
@@ -65,8 +65,9 @@ class PagePDFReader(BaseReader):
 
     def load_data(self, file: Path, **kwargs) -> list[Document]:
         """
-        这里策略反转：load_pages 容忍单页失败以便“看见问题“，
-        而 load_data（给索引流程用的标准入口）选择全有或全无——有失败就整体报错，并列出所有失败页码
+        Strategy reversal here: load_pages tolerates per-page failures so problems stay
+        visible, while load_data (the standard entry point for the indexing flow) is
+        all-or-nothing: any failed page raises and lists every failed page number.
         """
         result = self.load_pages(file, **kwargs)
         failures = [page for page in result.pages if page.status == PageStatus.FAILED]
@@ -75,6 +76,6 @@ class PagePDFReader(BaseReader):
         return [page.document for page in result.pages if page.document is not None]
 
 
-# 模块级便捷函数
+# Module-level convenience function
 def load_pdf(path: Path, start: int = DEFAULT_START_PAGE, end: int | None = None) -> LoadResult:
     return PagePDFReader().load_pages(path, start, end)
