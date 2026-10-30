@@ -30,16 +30,15 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("index", type=Path, help="索引目录")
     search.add_argument("question", help="自然语言问题")
     search.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖默认的 Hugging Face embedding 模型快照目录")
-    search.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help="最多显示的候选数量（默认 5）")
+    search.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help=f"最多显示的候选数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）")
     search.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
-    search.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help="重排前 dense 粗召回数量（默认 20）")
+    search.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help=f"重排前 dense 粗召回数量（默认 {DEFAULT_CANDIDATE_K}）")
     search.add_argument("--dense-only", action="store_true", help="仅运行 dense 基线，不使用 CrossEncoder 重排")
     args = parser.parse_args(argv)
 
     try:
         rerank_enabled = not args.dense_only
         if rerank_enabled:
-            assert args.rerank_model_path is not None
             results = retrieve_and_rerank(
                 args.index,
                 args.model_path,

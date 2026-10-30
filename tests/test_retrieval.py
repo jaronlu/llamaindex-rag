@@ -183,6 +183,52 @@ class RetrievalCoreTests(unittest.TestCase):
         self.assertEqual([item.rerank_score for item in results], [0.9, 0.2])
         self.assertEqual(fake_model.pairs, [("问题", "候选一"), ("问题", "候选二"), ("问题", "候选三")])
 
+    def test_rerank_rejects_non_scalar_model_scores_with_readable_error(self):
+        candidates = [self.make_result(1, "候选一", 0.9)]
+
+        class MultiLabelCrossEncoder:
+            def predict(self, pairs):
+                return [[0.2, 0.8]]
+
+        with tempfile.TemporaryDirectory() as temp:
+            model_path = Path(temp) / "reranker"
+            model_path.mkdir()
+            with patch("src.rag.retrieval.search._load_cross_encoder", return_value=MultiLabelCrossEncoder()):
+                with self.assertRaisesRegex(ValueError, "必须为每个候选返回一个标量分数"):
+                    rerank("问题", candidates, model_path)
+
+    def test_rerank_returns_available_candidates_when_fewer_than_top_k(self):
+        candidates = [self.make_result(1, "候选一", 0.9), self.make_result(2, "候选二", 0.8)]
+
+        class FakeCrossEncoder:
+            def predict(self, pairs):
+                return [0.7, 0.6]
+
+        with tempfile.TemporaryDirectory() as temp:
+            model_path = Path(temp) / "reranker"
+            model_path.mkdir()
+            with patch("src.rag.retrieval.search._load_cross_encoder", return_value=FakeCrossEncoder()):
+                results = rerank("问题", candidates, model_path, top_k=5)
+
+        self.assertEqual([result.node_id for result in results], ["node-1", "node-2"])
+
+    def test_cross_encoder_load_uses_local_safe_options(self):
+        from src.rag.retrieval.search import _load_cross_encoder
+
+        with tempfile.TemporaryDirectory() as temp:
+            model_path = Path(temp) / "reranker"
+            model_path.mkdir()
+            with patch("sentence_transformers.CrossEncoder", return_value=object()) as constructor:
+                result = _load_cross_encoder(model_path)
+
+        self.assertIsNotNone(result)
+        constructor.assert_called_once_with(
+            str(model_path.resolve()),
+            device="cpu",
+            local_files_only=True,
+            trust_remote_code=False,
+        )
+
     def test_retrieve_and_rerank_uses_twenty_candidates_then_returns_five(self):
         candidates = [self.make_result(index, f"候选{index}", 1.0 - index / 100) for index in range(1, 21)]
         with tempfile.TemporaryDirectory() as temp:
@@ -198,6 +244,22 @@ class RetrievalCoreTests(unittest.TestCase):
             retrieve_mock.assert_called_once_with(Path("/tmp/index"), Path("/tmp/embed"), "问题", top_k=20)
             rerank_mock.assert_called_once_with("问题", candidates, reranker_path.resolve(), top_k=5)
             self.assertEqual(len(results), 5)
+
+    def test_retrieve_and_rerank_accepts_fewer_candidates_than_requested(self):
+        candidates = [self.make_result(1, "候选一", 0.9), self.make_result(2, "候选二", 0.8)]
+        with tempfile.TemporaryDirectory() as temp:
+            reranker_path = Path(temp) / "reranker"
+            reranker_path.mkdir()
+            with patch("src.rag.retrieval.search.retrieve", return_value=candidates) as retrieve_mock, patch(
+                "src.rag.retrieval.search.rerank", return_value=candidates[:1]
+            ) as rerank_mock:
+                results = retrieve_and_rerank(
+                    Path("/tmp/index"), Path("/tmp/embed"), reranker_path, "问题", candidate_k=20, top_k=5
+                )
+
+        self.assertEqual(len(results), 1)
+        self.assertEqual(len(rerank_mock.call_args.args[1]), 2)
+        retrieve_mock.assert_called_once_with(Path("/tmp/index"), Path("/tmp/embed"), "问题", top_k=20)
 
     def test_rerank_rejects_invalid_limits_and_missing_model(self):
         candidates = [self.make_result(1, "候选", 0.9)]
@@ -219,9 +281,6 @@ class RetrievalCoreTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "模型无法加载"):
                     rerank("问题", [], reranker_path, top_k=1)
 
-
-if __name__ == "__main__":
-    unittest.main()
 
 class RetrievalCliTests(unittest.TestCase):
     def test_search_uses_configured_embedding_path_when_not_overridden(self):
@@ -294,3 +353,7 @@ class RetrievalCliTests(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("检索失败", output.getvalue())
         self.assertIn("索引配置不兼容", output.getvalue())
+
+
+if __name__ == "__main__":
+    unittest.main()

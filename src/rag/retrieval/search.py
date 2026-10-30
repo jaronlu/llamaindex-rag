@@ -10,9 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from dataclasses import replace
 from collections.abc import Sequence
 from typing import Any
 
@@ -20,6 +19,7 @@ from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.schema import MetadataMode
 
 from ..config.indexing import DEFAULT_EMBEDDING_DEVICE, HASH_READ_SIZE, MANIFEST_FILE, ManifestKey
+from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
 from ..config.ingestion import MetadataKey
 from ..indexing.model import snapshot_identity
 from ..indexing.store import check_compatibility
@@ -229,7 +229,7 @@ def rerank(
     question: str,
     candidates: Sequence[RetrievalResult],
     model_path: Path,
-    top_k: int = 5,
+    top_k: int = DEFAULT_RETRIEVAL_TOP_K,
 ) -> list[RetrievalResult]:
     """用本地 CrossEncoder 对 dense 候选重新排序并返回前 ``top_k`` 条。
 
@@ -253,7 +253,10 @@ def rerank(
 
     scored: list[tuple[int, RetrievalResult, float]] = []
     for index, (candidate, raw_score) in enumerate(zip(candidates, scores)):
-        score = float(raw_score)
+        try:
+            score = float(raw_score)
+        except (TypeError, ValueError) as exc:
+            raise ValueError("重排模型必须为每个候选返回一个标量分数") from exc
         if not math.isfinite(score):
             raise ValueError("重排模型返回了非有限分数")
         scored.append((index, candidate, score))
@@ -271,8 +274,8 @@ def retrieve_and_rerank(
     model_path: Path,
     rerank_model_path: Path,
     question: str,
-    candidate_k: int = 20,
-    top_k: int = 5,
+    candidate_k: int = DEFAULT_CANDIDATE_K,
+    top_k: int = DEFAULT_RETRIEVAL_TOP_K,
 ) -> list[RetrievalResult]:
     """先进行 dense 粗召回，再用本地模型重排候选。
 
