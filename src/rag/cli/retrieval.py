@@ -1,4 +1,8 @@
-"""检索命令行入口，展示候选片段、相似度和可核对来源。"""
+"""检索命令行入口，展示候选片段、相似度和可核对来源。
+
+除单次检索外，还提供 ``evaluate``：用带答案页标注的固定问题集，统计答案页在
+dense 和重排结果中的排名，供比较两阶段检索的效果。
+"""
 
 from __future__ import annotations
 
@@ -11,10 +15,57 @@ from .logging import logged_command
 
 from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
 from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
+from ..retrieval.evaluate import evaluate_questions, format_pages, load_questions
 from ..retrieval.search import retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)
+
+
+def _run_evaluation(args: argparse.Namespace) -> int:
+    """运行问题集评估，打印每个问题的答案页排名和汇总。"""
+    try:
+        questions = load_questions(args.questions)
+        evaluations = evaluate_questions(
+            args.index,
+            args.model_path,
+            args.rerank_model_path,
+            questions,
+            candidate_k=args.candidate_k,
+            top_k=args.top_k,
+        )
+    except Exception as exc:
+        logger.exception("retrieval.evaluate_failed index=%s questions=%s", args.index, args.questions)
+        print(f"评估失败: {exc}", file=sys.stderr)
+        return 1
+
+    in_document = [item for item in evaluations if item.question.answer_pages]
+    outside = [item for item in evaluations if not item.question.answer_pages]
+    print(f"问题集: {args.questions.expanduser().resolve()}（{len(evaluations)} 个问题，其中文档外 {len(outside)} 个）")
+    print(f"索引: {args.index.expanduser().resolve()}")
+    print(f"检索模式: dense top {args.candidate_k} → rerank top {args.top_k}")
+    print(f"说明: dense/rerank 名次只在交付的前 {args.top_k} 条内计算；候选内表示答案页是否进入 dense 的 {args.candidate_k} 条候选。名次命中仍须人工回到 PDF 核对原文。")
+
+    for item in evaluations:
+        dense = "—" if item.dense_rank is None else f"第 {item.dense_rank}"
+        reranked = "—" if item.rerank_rank is None else f"第 {item.rerank_rank}"
+        candidates = "—" if not item.question.answer_pages else ("是" if item.in_candidates else "否")
+        score = "—" if item.top_rerank_score is None else f"{item.top_rerank_score:.4f}"
+        print(f"\n{item.question.question_id} | {item.question.question}")
+        print(f"  答案页: {format_pages(item.question.answer_pages)} | dense: {dense} | rerank: {reranked} | 候选内: {candidates} | 最高重排分: {score}")
+        print(f"  dense 页码: {[format_pages(pages) for pages in item.dense_pages]}")
+        print(f"  rerank 页码: {[format_pages(pages) for pages in item.rerank_pages]}")
+
+    if in_document:
+        dense_hits = sum(1 for item in in_document if item.dense_rank is not None)
+        rerank_hits = sum(1 for item in in_document if item.rerank_rank is not None)
+        recalled = sum(1 for item in in_document if item.in_candidates)
+        print(f"\n汇总（文档内 {len(in_document)} 题）: 答案页进入候选 {recalled}/{len(in_document)}；dense 前 {args.top_k} 命中 {dense_hits}/{len(in_document)}；rerank 前 {args.top_k} 命中 {rerank_hits}/{len(in_document)}")
+    if outside:
+        scores = [item.top_rerank_score for item in outside if item.top_rerank_score is not None]
+        if scores:
+            print(f"书外问题 {len(outside)} 题，最高重排分 {max(scores):.4f}；该分数只能与同一模型下的文档内问题对照，程序不会据此判定资料不足。")
+    return 0
 
 
 @logged_command
@@ -34,7 +85,17 @@ def main(argv: list[str] | None = None) -> int:
     search.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
     search.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help=f"重排前 dense 粗召回数量（默认 {DEFAULT_CANDIDATE_K}）")
     search.add_argument("--dense-only", action="store_true", help="仅运行 dense 基线，不使用 CrossEncoder 重排")
+    evaluate = subparsers.add_parser("evaluate", help="用固定问题集统计答案页排名")
+    evaluate.add_argument("index", type=Path, help="索引目录")
+    evaluate.add_argument("questions", type=Path, help="问题集 JSON 路径，需包含人工标注的答案页")
+    evaluate.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖默认的 Hugging Face embedding 模型快照目录")
+    evaluate.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
+    evaluate.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help=f"重排前 dense 粗召回数量（默认 {DEFAULT_CANDIDATE_K}）")
+    evaluate.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help=f"计算名次时使用的交付数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）")
     args = parser.parse_args(argv)
+
+    if args.command == "evaluate":
+        return _run_evaluation(args)
 
     try:
         rerank_enabled = not args.dense_only

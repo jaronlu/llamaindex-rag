@@ -65,7 +65,7 @@ uv run python -m src.rag.cli.chunking docs/pdf/HowToLiveBetter.pdf --start 5 --e
 
 将参数改为 `--chunk-size 256 --chunk-overlap 64`，可对照同一页的边界。省略 `--end` 会处理到末页；替换路径可检查其他 PDF。默认大小为 512、重叠为 64，单位是 LlamaIndex 默认 tokenizer 的 token，长度统计针对片段正文；重叠为上限，实际取决于句子边界。配置须满足大小大于 0，且 `0 ≤ 重叠 < 大小`。输出包含完整文本、片段编号、运行时节点 ID、文件路径、物理页码及长度统计；节点 ID 每次运行会重新生成。空页和失败页会明确列出，失败页使命令返回非零状态。
 
-切片先在行首项目符号或编号条目处划出结构块（`src/rag/config/chunking.py` 的 `STRUCTURE_BLOCK_START_REGEX`），让片段边界优先落在条目之间，块内仍然交给 LlamaIndex 切分；PDF 提取的单换行会让默认段落分隔符失效，没有这一步时片段会从「来源 / 备注」行中间开始。规则只看行首符号，换 PDF 无需修改；`①`、`(1)` 这类符号目前不认，遇到时补充该正则即可。
+切片先在行首项目符号或编号条目处划出结构块（`src/rag/config/chunking.py` 的 `STRUCTURE_BLOCK_START_REGEX`），让片段边界优先落在条目之间，块内仍然交给 LlamaIndex 切分；PDF 提取的单换行会让默认段落分隔符失效，没有这一步时片段会从“来源 / 备注”行中间开始。规则只看行首符号，换 PDF 无需修改；`①`、`(1)` 这类符号目前不认，遇到时补充该正则即可。
 
 使用 LlamaIndex `SentenceSplitter` 的句子拆分规则切片，通过适配其内部合并步骤记录原文位置；这依赖当前锁定版本的内部接口，升级 LlamaIndex 时应重新验证。同一文件的连续物理页面以换行拼接，切片可跨页；PDF 的 `page_numbers` 是唯一页码来源，单页例如 `[5]`，跨页例如 `[5, 6]`，命令行由它生成位置展示。缺页、空页及不同文件之间不拼接。切片入口目前支持 PDF，要求文件名、来源路径、来源标识及物理页码；其他格式引入时再设计其定位方式。切片大小仅计算正文，来源元数据仍保存在节点中。重叠是最大值，并不保证每个边界或每个观点完整；PDF 提取的页眉、页脚和换行可能干扰阅读，应对照原 PDF。此阶段只做本地处理，不调用模型或外部服务。实验结果和限制见 [切片实验记录](docs/experiments/chunking.md)。
 
@@ -136,3 +136,12 @@ uv run python -m src.rag.cli.retrieval search data/index-from14-384 \
 输出会同时显示 dense 原始排名和分数、rerank 新排名和分数。两类分数来自不同模型，不能直接比较；重排只能调整已经进入前 20 的候选，不能找回 dense 阶段完全漏掉的片段。使用 `--dense-only` 可在相同问题上运行 dense 基线。
 
 检索验收至少应包含三个文档内有明确依据的问题和一个文档内没有明确答案的问题。对每条结果打开对应 PDF，核对文件、物理页码和完整原文；无结果或来源缺失都要记录，不能仅凭相似度或重排分数判定回答正确。两阶段检索的实验协议和未完成的人工比较见[重排实验记录](docs/experiments/reranking.md)。基于来源的回答尚未实现。
+
+用带答案页标注的固定问题集批量统计：
+
+```bash
+uv run python -m src.rag.cli.retrieval evaluate data/index-from14-384 docs/experiments/questions.json \
+  --candidate-k 20 --top-k 5
+```
+
+`docs/experiments/questions.json` 记录问题、答案页和文档外问题；命令输出答案页是否进入 dense 候选，以及它在 dense 和重排前 5 中的名次。名次命中只说明答案页被检索到，片段是否真的支持答案仍要人工核对。当前结果和限制见[检索评测记录](docs/experiments/retrieval-eval.md)。
