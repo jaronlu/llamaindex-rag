@@ -12,7 +12,7 @@ from src.rag.indexing.store import build_index, read_node
 
 
 def setUpModule():
-    """将测试运行日志与用户日志隔离。"""
+    """把索引测试的日志写入临时文件，避免污染用户的运行日志。"""
     temp = tempfile.TemporaryDirectory()
     unittest.addModuleCleanup(temp.cleanup)
     env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})

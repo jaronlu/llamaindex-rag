@@ -1,4 +1,4 @@
-"""以人可读的方式检查 PDF 加载结果。"""
+"""提供命令行入口，以人可读的方式检查 PDF 加载结果。"""
 
 import argparse
 import logging
@@ -16,7 +16,11 @@ logger = logging.getLogger(__name__)
 
 @logged_command
 def main(argv: list[str] | None = None) -> int:
-    """解析命令行参数，展示每页结果并返回进程状态码。"""
+    """解析参数、展示每页结果，并返回进程状态码。
+
+    该入口调用摄取模块的逐页加载能力，把成功、空文本和解析失败分别展示出来，
+    方便在进入切片阶段前确认来源文本是否完整。
+    """
     parser = argparse.ArgumentParser(description="逐页加载 PDF 并显示原文及物理页码")
     parser.add_argument("file", type=Path, help="PDF 文件路径")
     parser.add_argument("--start", type=int, default=DEFAULT_START_PAGE, help="起始物理页码（从 1 开始）")

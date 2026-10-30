@@ -1,4 +1,8 @@
-"""命令行运行日志的配置与生命周期。"""
+"""为命令行调用配置文件日志，并管理日志 handler 的生命周期。
+
+标准 logging 负责创建和分发记录；本模块额外按运行上下文筛选记录、添加 run_id、
+处理并发命令，以及在日志文件不可写时向 stderr 提示，而不改变业务返回值。
+"""
 
 import contextvars
 import functools
@@ -25,7 +29,11 @@ _original_level = 0
 
 
 def bind_log_context(function: Callable[P, T]) -> Callable[P, T]:
-    """提交线程任务时复制当前上下文；每个并发任务须单独调用。"""
+    """为线程任务复制当前日志上下文。
+
+    ``contextvars`` 默认不会自动跨线程传递；包装提交给线程池的函数后，
+    工作线程才能继续使用当前运行的日志文件、run_id 和级别。每个并发任务都应单独包装。
+    """
     context = contextvars.copy_context()
 
     @functools.wraps(function)
@@ -36,7 +44,7 @@ def bind_log_context(function: Callable[P, T]) -> Callable[P, T]:
 
 
 class RunFilter(logging.Filter):
-    """只接收当前运行对应文件和级别的记录。"""
+    """只保留属于当前运行、且达到当前级别的日志记录。"""
 
     def __init__(self, path: str) -> None:
         super().__init__()
@@ -51,7 +59,7 @@ class RunFilter(logging.Filter):
 
 
 class RunFormatter(logging.Formatter):
-    """为多行记录的每一行保留运行标识。"""
+    """给多行日志的每一行都加上同一个 run_id，便于检索完整运行记录。"""
 
     def format(self, record: logging.LogRecord) -> str:
         formatted = super().format(record)
@@ -60,17 +68,21 @@ class RunFormatter(logging.Formatter):
 
 
 class ReportingFileHandler(RotatingFileHandler):
-    """写入失败时提示用户，不改变业务操作的结果。"""
+    """在文件日志写入失败时提示用户，但不让日志故障改变业务结果。"""
 
     def handleError(self, record: logging.LogRecord) -> None:
-        """每个 handler 只提示一次，避免磁盘故障刷屏。"""
+        """每个 handler 只提示一次，避免磁盘故障导致 stderr 刷屏。"""
         if not getattr(self, '_reported', False):
             self._reported = True
             print('警告：日志写入失败，后续诊断信息可能缺失。', file=sys.stderr)
 
 
 def logged_command(function: Callable[P, int]) -> Callable[P, int]:
-    """为一次命令配置文件日志，结束后关闭 handler。"""
+    """为一次命令配置文件日志，并在命令结束后释放 handler。
+
+    装饰器保持被装饰函数的返回值和异常行为；它只增加启动、完成或失败日志，
+    以及按环境变量选择日志路径和级别的处理。
+    """
     @functools.wraps(function)
     def wrapper(*args: P.args, **kwargs: P.kwargs) -> int:
         global _active, _original_level

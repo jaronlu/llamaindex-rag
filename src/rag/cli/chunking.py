@@ -1,4 +1,4 @@
-"""检查切片及其来源位置。"""
+"""提供命令行入口，展示切片正文、token 长度和来源页码。"""
 
 import argparse
 import logging
@@ -21,7 +21,11 @@ logger = logging.getLogger(__name__)
 
 @logged_command
 def main(argv: list[str] | None = None) -> int:
-    """加载所选页面并展示切片、来源和长度统计。"""
+    """加载指定页面并展示切片、来源和长度统计。
+
+    这个命令把 PDF 加载和切片模块串起来，输出完整片段供人工核对；返回值遵循
+    命令行约定，0 表示处理完成，1 表示参数、加载或页面解析存在问题。
+    """
     parser = argparse.ArgumentParser(description="切片并显示完整原文和来源")
     parser.add_argument("file", type=Path, help="PDF 文件路径")
     parser.add_argument("--start", type=int, default=DEFAULT_START_PAGE, help="起始物理页码")

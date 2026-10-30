@@ -1,4 +1,8 @@
-"""构建本地向量索引并查看保存的片段。"""
+"""提供本地向量索引的构建、概览和片段回查命令。
+
+CLI 负责串联加载、切片、模型检查和索引存储模块；真正的向量索引由 LlamaIndex
+创建，本模块负责把来源版本、配置和人可读输出接到整个流程中。
+"""
 
 import argparse
 import logging
@@ -23,7 +27,7 @@ from ..ingestion.pdf import load_pdf
 
 
 def file_hash(path: Path) -> str:
-    """计算文件内容版本。"""
+    """按文件内容计算 SHA-256 摘要，用于确认来源版本是否发生变化。"""
     digest = hashlib.sha256()
     with path.open("rb") as source:
         for block in iter(lambda: source.read(HASH_READ_SIZE), b""):
@@ -36,7 +40,11 @@ logger = logging.getLogger(__name__)
 
 @logged_command
 def main(argv: list[str] | None = None) -> int:
-    """运行构建或片段回查命令。"""
+    """运行索引构建、概览或片段回查命令。
+
+    构建模式依次调用 PDF 加载、页面切片、模型快照校验和索引持久化；概览与回查
+    模式只读取已发布的索引，并把配置、来源和正文展示给使用者。
+    """
     parser = argparse.ArgumentParser(description="本地索引构建和片段回查")
     sub = parser.add_subparsers(dest="command", required=True)
     build = sub.add_parser(IndexCommand.BUILD)
@@ -54,7 +62,8 @@ def main(argv: list[str] | None = None) -> int:
     read.add_argument("node_id")
     args = parser.parse_args(argv)
     logger.info("index.operation command=%s index=%s", args.command, args.index)
-    # 切片前无法确定待处理数量；发布后即使输出失败也不能报告为未发布。
+    # 切片完成前还不知道最终节点数量；索引已经发布后，即使后续输出失败，
+    # 也不能把它报告成“未发布”。
     node_count: int | None = None
     published = False
     try:
@@ -90,11 +99,11 @@ def main(argv: list[str] | None = None) -> int:
         paths = [path.expanduser().resolve(strict=True) for path in args.files]
         if len(paths) != len(set(paths)):
             raise ValueError("输入包含重复文档")
-        # 每个 PDF 先逐页加载，再汇总成功页面统一切片。
+        # 每个 PDF 先逐页加载并保留页面状态，再把成功页面汇总后统一切片。
         documents: list[Document] = []
         versions = []
         for path in paths:
-            # 读取前后各算一次摘要，避免将读取中变化的文件误记为同一版本。
+            # 在读取前后各计算一次摘要；如果文件在读取期间变化，就拒绝把它记录成稳定版本。
             digest = file_hash(path)
             result = load_pdf(path, args.start, args.end)
             failures = [page for page in result.pages if page.status == PageStatus.FAILED]
@@ -108,7 +117,7 @@ def main(argv: list[str] | None = None) -> int:
             if digest != file_hash(path):
                 raise ValueError(f"读取期间文件发生变化: {path}")
             versions.append({ManifestKey.PATH: str(path), ManifestKey.SHA256: digest, ManifestKey.START: args.start, ManifestKey.END: args.end or result.total_pages, ManifestKey.EMPTY_PAGES: empty, ManifestKey.TEXT_COVERAGE_COMPLETE: not empty})
-        # Document 是页面；Node 是切片。索引保存的是这些 Node。
+        # 在本项目里，Document 表示一页，Node 表示一段切片；最终索引保存的是这些 Node。
         nodes = chunk_documents(documents, args.chunk_size, args.chunk_overlap)
         node_count = len(nodes)
         if not nodes:
@@ -120,8 +129,8 @@ def main(argv: list[str] | None = None) -> int:
             item[ManifestKey.SOURCE_ID] = hashlib.sha256(item[ManifestKey.PATH].encode("utf-8")).hexdigest()
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
         model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_EMBEDDING_DEVICE, local_files_only=True)
-        # LlamaIndex 当前未公开底层 tokenizer；使用锁定版本的内部模型，
-        # 同时计入文本前缀和特殊 token，避免预检通过后推理静默截断。
+        # 当前 LlamaIndex 没有公开这里需要的底层 tokenizer，因此读取已安装版本的
+        # 内部模型接口；同时把文本前缀和特殊 token 算入长度，避免预检通过后被静默截断。
         tokenizer = model._model.tokenizer
         maximum = model.max_length
         if maximum is None:

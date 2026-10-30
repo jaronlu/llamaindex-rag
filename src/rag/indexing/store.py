@@ -116,7 +116,7 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
     published = False
     try:
         for node in nodes:
-            # 在副本上写入 embedding，避免偷偷修改调用方手里的原始 Node。
+            # 在副本上写入 embedding，避免修改调用方仍在使用的原始 Node。
             copy = node.model_copy(deep=True)
             # 只把正文交给嵌入模型。
             # source_path、页码等 metadata 用于溯源，不应该改变语义向量，

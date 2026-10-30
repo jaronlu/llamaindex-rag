@@ -1,4 +1,8 @@
-"""标识本地 Hugging Face 模型快照及其实际文件内容。"""
+"""识别本地 Hugging Face 模型快照，并为其内容生成稳定摘要。
+
+模型目录名和 revision 可以说明模型来源，但不能证明目录中的权重没有变化；
+本模块因此还会对快照内的相对文件路径和文件内容计算摘要，供索引兼容性检查使用。
+"""
 
 import hashlib
 from pathlib import Path
@@ -10,7 +14,11 @@ from ..config.indexing import (
 
 
 def snapshot_identity(path: Path) -> dict[str, str]:
-    """读取缓存目录标识，并对文件路径和内容计算可重复的摘要。"""
+    """读取 Hugging Face 缓存快照的身份信息和内容摘要。
+
+    返回值包含模型名、快照版本和模型文件摘要。函数只接受标准缓存中的快照目录，
+    并对其中所有文件排序后计算摘要，使同一组文件得到可重复的结果。
+    """
     path = path.expanduser().resolve(strict=True)
     repo = path.parent.parent.name
     if not path.is_dir() or path.parent.name != HF_SNAPSHOTS_DIR or not repo.startswith(HF_MODEL_CACHE_PREFIX):

@@ -11,7 +11,7 @@ from src.rag.cli.chunking import main as chunk_main
 
 
 def setUpModule():
-    """将测试运行日志与用户日志隔离。"""
+    """把日志测试写入临时文件，避免测试输出混入用户的运行日志。"""
     temp = tempfile.TemporaryDirectory()
     unittest.addModuleCleanup(temp.cleanup)
     env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
@@ -178,7 +178,7 @@ class LoggingBoundaryTests(unittest.TestCase):
             doc = Document(text='text', metadata={'file_name': 'source.pdf', 'source_path': str(pdf), 'source_id': 'a', 'page_numbers': [1]})
             loaded = LoadResult(pdf, 1, [PageResult(1, PageStatus.SUCCESS, doc)])
             log = root / 'run.log'
-            # 清理阶段抛错，同时保留临时目录上下文的实际清理行为。
+            # 模拟临时目录退出时的清理异常，同时保留上下文管理器的实际清理流程。
             original = tempfile.TemporaryDirectory.__exit__
             def failing_exit(instance, *args):
                 original(instance, *args)
