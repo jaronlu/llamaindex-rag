@@ -2,12 +2,13 @@
 
 ## 从哪里开始读代码
 
-目前已实现到检索阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索`，并提供可选的 `dense top 20 → rerank top 5` 两阶段检索。基于来源的回答尚未实现；检索分数和重排分数都不能单独证明候选相关或答案正确。
+目前已实现到回答阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索 → 可选重排 → 基于片段的回答`。检索分数和重排分数都不能单独证明候选相关或答案正确，生成模型也不保证回答忠实于原文，仍需人工核对。
 
 1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
 2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
 3. 接着看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
 4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；可选的本地 CrossEncoder 会对 dense 候选重新排序，结果继续使用索引中保存的完整正文与来源元数据。
+5. 最后看 [回答命令](src/rag/cli/answering.py) 和 [回答逻辑](src/rag/answering/generate.py)。检索片段按顺序编号后交给 OpenAI 兼容的生成模型，回答中的 `[n]` 会与证据逐条核对；密钥只从环境变量读取。
 
 `config/` 集中存放默认值和字段名；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
 
@@ -135,7 +136,7 @@ uv run python -m src.rag.cli.retrieval search data/index-from14-384 \
 
 输出会同时显示 dense 原始排名和分数、rerank 新排名和分数。两类分数来自不同模型，不能直接比较；重排只能调整已经进入前 20 的候选，不能找回 dense 阶段完全漏掉的片段。使用 `--dense-only` 可在相同问题上运行 dense 基线。
 
-检索验收至少应包含三个文档内有明确依据的问题和一个文档内没有明确答案的问题。对每条结果打开对应 PDF，核对文件、物理页码和完整原文；无结果或来源缺失都要记录，不能仅凭相似度或重排分数判定回答正确。两阶段检索的实验协议和未完成的人工比较见[重排实验记录](docs/experiments/reranking.md)。基于来源的回答尚未实现。
+检索验收至少应包含三个文档内有明确依据的问题和一个文档内没有明确答案的问题。对每条结果打开对应 PDF，核对文件、物理页码和完整原文；无结果或来源缺失都要记录，不能仅凭相似度或重排分数判定回答正确。两阶段检索的实验协议和未完成的人工比较见[重排实验记录](docs/experiments/reranking.md)。
 
 用带答案页标注的固定问题集批量统计：
 
@@ -145,3 +146,20 @@ uv run python -m src.rag.cli.retrieval evaluate data/index-from14-384 docs/exper
 ```
 
 `docs/experiments/questions.json` 记录问题、答案页和文档外问题；命令输出答案页是否进入 dense 候选，以及它在 dense 和重排前 5 中的名次。名次命中只说明答案页被检索到，片段是否真的支持答案仍要人工核对。当前结果和限制见[检索评测记录](docs/experiments/retrieval-eval.md)。
+
+## 回答
+
+回答命令复用检索或重排结果，把问题和交付的片段发送给 OpenAI 兼容的生成模型，不重新解析 PDF。默认服务是火山方舟的 `glm-5.3-flash`（`https://ark.cn-beijing.volces.com/api/coding/v3`），属于外部服务：问题和片段正文会离开本机，按服务商规则计费；PDF 文件、索引和其他文档不会发送。地址和模型集中在 `src/rag/config/answering.py`，可用 `--api-base`、`--llm-model` 临时覆盖。
+
+密钥只从环境变量读取，不能写在命令行或配置文件里：
+
+```bash
+export ARK_WORK_FLOW_API_KEY="你的密钥"
+uv run python -m src.rag.cli.answering data/index-from14-384 \
+  "公司拖欠加班费该怎么办？" \
+  --candidate-k 20 --top-k 5
+```
+
+命令先用 dense top 20 召回并重排取前 5 条作为证据；加 `--dense-only` 可直接使用 dense 结果。输出包括回答、引用编号检查，以及每条证据的文件名、来源路径、物理页码、片段 ID 和完整原文。证据会被标为“已被引用”或“未被引用”；回答引用了不存在的编号，或完全没有引用时，命令会明确提示。检索不到可交付片段时，命令直接给出资料不足提示，不调用模型，也不需要密钥。
+
+`--api-key-env` 可改用其他环境变量名。模型返回空回答、输出达到上限（`finish_reason=length`）、鉴权失败或网络错误都会作为失败报告，不会退回本地模型、展示半截回答或编造回答。回答是否忠于原文、是否遗漏限定条件，仍要按引用打开 PDF 人工核对；实验协议和限制见[回答实验记录](docs/experiments/answering.md)。
