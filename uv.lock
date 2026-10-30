@@ -1008,6 +1008,7 @@ dependencies = [
     { name = "llama-index-embeddings-huggingface" },
     { name = "llama-index-readers-file" },
     { name = "pypdf" },
+    { name = "sentence-transformers" },
 ]
 
 [package.metadata]
@@ -1016,6 +1017,7 @@ requires-dist = [
     { name = "llama-index-embeddings-huggingface", specifier = ">=0.6,<0.7" },
     { name = "llama-index-readers-file", specifier = ">=0.7.0" },
     { name = "pypdf", specifier = ">=6.21.3" },
+    { name = "sentence-transformers", specifier = ">=5.0" },
 ]
 
 [[package]]

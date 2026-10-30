@@ -9,7 +9,9 @@ from pathlib import Path
 
 from .logging import logged_command
 
-from ..retrieval.search import retrieve
+from ..config.indexing import DEFAULT_EMBEDDING_MODEL_PATH
+from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RERANK_MODEL_PATH, DEFAULT_RETRIEVAL_TOP_K
+from ..retrieval.search import retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)
@@ -27,12 +29,27 @@ def main(argv: list[str] | None = None) -> int:
     search = subparsers.add_parser("search", help="检索一个自然语言问题")
     search.add_argument("index", type=Path, help="索引目录")
     search.add_argument("question", help="自然语言问题")
-    search.add_argument("--model-path", required=True, type=Path, help="与索引构建时相同的 Hugging Face 快照目录")
-    search.add_argument("--top-k", type=int, default=5, help="最多显示的候选数量（默认 5）")
+    search.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖默认的 Hugging Face embedding 模型快照目录")
+    search.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help="最多显示的候选数量（默认 5）")
+    search.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
+    search.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help="重排前 dense 粗召回数量（默认 20）")
+    search.add_argument("--dense-only", action="store_true", help="仅运行 dense 基线，不使用 CrossEncoder 重排")
     args = parser.parse_args(argv)
 
     try:
-        results = retrieve(args.index, args.model_path, args.question, args.top_k)
+        rerank_enabled = not args.dense_only
+        if rerank_enabled:
+            assert args.rerank_model_path is not None
+            results = retrieve_and_rerank(
+                args.index,
+                args.model_path,
+                args.rerank_model_path,
+                args.question,
+                candidate_k=args.candidate_k,
+                top_k=args.top_k,
+            )
+        else:
+            results = retrieve(args.index, args.model_path, args.question, args.top_k)
     except Exception as exc:
         logger.exception("retrieval.failed index=%s question_length=%s", args.index, len(args.question))
         print(f"检索失败: {exc}", file=sys.stderr)
@@ -41,7 +58,12 @@ def main(argv: list[str] | None = None) -> int:
     print(f"问题: {args.question}")
     print(f"索引: {args.index.expanduser().resolve()}")
     print(f"Top-K: {args.top_k}")
-    print("分数说明: 相似度分数越高表示向量越相似；分数只在同一索引和查询配置下比较。")
+    if not args.dense_only:
+        print(f"检索模式: dense top {args.candidate_k} → rerank top {args.top_k}")
+        print("分数说明: dense 相似度分数和 rerank 分数来自不同模型，不能直接比较。")
+    else:
+        print("检索模式: dense")
+        print("分数说明: 相似度分数越高表示向量越相似；分数只在同一索引和查询配置下比较。")
     if not results:
         print("未找到可交付的检索结果：没有候选片段通过来源和正文检查。")
         return 0
@@ -50,7 +72,13 @@ def main(argv: list[str] | None = None) -> int:
         score = "无" if result.score is None else f"{result.score:.6f}"
         print(f"\n--- 结果 {result.rank} ---")
         print(f"排名: {result.rank}")
-        print(f"相似度分数: {score}")
+        if result.rerank_score is not None:
+            print(f"原始排名: {result.original_rank}")
+            print(f"新排名: {result.rank}")
+            print(f"dense 相似度分数: {score}")
+            print(f"rerank 分数: {result.rerank_score:.6f}")
+        else:
+            print(f"相似度分数: {score}")
         print(f"片段 ID: {result.node_id}")
         print(f"文件名: {result.file_name}")
         print(f"来源路径: {result.source_path}")

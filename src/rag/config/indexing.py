@@ -4,11 +4,20 @@
 文件中各自维护。
 """
 
+import os
 from enum import StrEnum
+from pathlib import Path
 from typing import Literal
 
-DEFAULT_MODEL = "BAAI/bge-small-zh-v1.5"
-DEFAULT_REVISION = "7999e1d3359715c523056ef9478215996d62a620"
+DEFAULT_EMBEDDING_MODEL_PATH = Path(
+    os.environ.get(
+        "RAG_EMBEDDING_MODEL_PATH",
+        str(
+            Path.home()
+            / ".cache/huggingface/hub/models--BAAI--bge-small-zh-v1.5/snapshots/7999e1d3359715c523056ef9478215996d62a620"
+        ),
+    )
+).expanduser()
 # 这是经验默认值；每个实际片段仍必须按所选模型的 token 上限逐片校验。
 DEFAULT_INDEX_CHUNK_SIZE = 384
 

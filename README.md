@@ -2,12 +2,12 @@
 
 ## 从哪里开始读代码
 
-目前已实现到检索阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → Top-K 检索`。重排和基于来源的回答尚未实现；检索分数也不能单独证明候选相关或答案正确。
+目前已实现到检索阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索`，并提供可选的 `dense top 20 → rerank top 5` 两阶段检索。基于来源的回答尚未实现；检索分数和重排分数都不能单独证明候选相关或答案正确。
 
 1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
 2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
 3. 接着看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
-4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；结果继续使用索引中保存的完整正文与来源元数据。
+4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；可选的本地 CrossEncoder 会对 dense 候选重新排序，结果继续使用索引中保存的完整正文与来源元数据。
 
 `config/` 集中存放默认值和字段名；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
 
@@ -69,12 +69,11 @@ uv run python -m src.rag.cli.chunking docs/pdf/HowToLiveBetter.pdf --start 5 --e
 
 ## 向量化与索引
 
-本阶段使用本地 `BAAI/bge-small-zh-v1.5` 和 LlamaIndex `HuggingFaceEmbedding`、`VectorStoreIndex`，将切片正文转换为向量，来源元数据保存在文档库。需要 Python 3.12，运行 `uv sync` 安装依赖；依赖首次下载需要联网并占用磁盘。以下示例使用本机已缓存的模型快照，CPU 本地推理，不发送文档或问题到外部服务，也不产生模型 API 费用。缓存不存在时需先从可信来源获取相同模型快照；替换 `--model-path` 为 Hugging Face 缓存的快照目录。程序从缓存目录读取模型名和版本，并对快照文件计算 SHA-256 摘要；目录名本身不能证明模型来源，首次获取时仍应确认下载来源可信。
+本阶段使用本地 `BAAI/bge-small-zh-v1.5` 和 LlamaIndex `HuggingFaceEmbedding`、`VectorStoreIndex`，将切片正文转换为向量，来源元数据保存在文档库。需要 Python 3.12，运行 `uv sync` 安装依赖；依赖首次下载需要联网并占用磁盘。默认模型快照路径配置在 `src/rag/config/indexing.py`，CPU 本地推理，不发送文档或问题到外部服务，也不产生模型 API 费用。缓存不存在时需先从可信来源获取相同模型快照，或通过 `--model-path` 覆盖为其他快照目录。程序从缓存目录读取模型名和版本，并对快照文件计算 SHA-256 摘要；目录名本身不能证明模型来源，首次获取时仍应确认下载来源可信。
 
 ```bash
 uv run python -m src.rag.cli.indexing build data/index-pages-4-5 docs/pdf/HowToLiveBetter.pdf \
-  --start 4 --end 5 --chunk-size 128 --chunk-overlap 32 \
-  --model-path "$HOME/.cache/huggingface/hub/models--BAAI--bge-small-zh-v1.5/snapshots/7999e1d3359715c523056ef9478215996d62a620"
+  --start 4 --end 5 --chunk-size 128 --chunk-overlap 32
 ```
 
 构建结束会列出片段 ID 和物理页码。重新加载索引时，可先查看所有文档的覆盖情况，包括没有任何可提取文本的文档：
@@ -102,15 +101,26 @@ uv run --with mypy python -m mypy --check-untyped-defs src tests
 
 ## 检索
 
-检索使用已保存索引中的向量和 Node，不会重新解析 PDF。查询时必须传入构建索引时使用的同一个 Hugging Face 快照目录；程序会比较模型名、revision、快照文件摘要、向量维度和切片配置，配置不兼容会拒绝查询。
+检索使用已保存索引中的向量和 Node，不会重新解析 PDF。默认使用 `src/rag/config/indexing.py` 配置的 embedding 模型路径；它必须与构建索引时使用的快照一致。需要换模型目录时，可用 `--model-path` 或环境变量 `RAG_EMBEDDING_MODEL_PATH` 覆盖，并确保与索引配置相同。程序会比较模型名、revision、快照文件摘要、向量维度和切片配置，配置不兼容会拒绝查询。
 
 ```bash
 uv run python -m src.rag.cli.retrieval search data/index-pages-4-5 \
   "如何改善生活质量？" \
-  --model-path "$HOME/.cache/huggingface/hub/models--BAAI--bge-small-zh-v1.5/snapshots/7999e1d3359715c523056ef9478215996d62a620" \
   --top-k 5
 ```
 
-输出按相似度从高到低列出候选片段，包含排名、分数、片段 ID、完整正文、文件名、来源路径和 PDF 物理页码。分数越高表示向量越相似，只能在同一索引和查询配置下比较；它不是答案正确率。索引中缺少正文、文件名或合法物理页码的节点会被排除。源文件已移动或删除时，保存的正文仍会显示，但来源状态会标记为无法完成当前文件核对。
+默认结果按重排分数排序，同时显示 dense 原始排名/相似度分数、rerank 分数、片段 ID、完整正文、文件名、来源路径和 PDF 物理页码。两类分数不能互相比较，也不是答案正确率。若使用 `--dense-only`，结果才按向量相似度排序；dense 分数越高表示向量越相似，只能在同一索引和查询配置下比较。索引中缺少正文、文件名或合法物理页码的节点会被排除。源文件已移动或删除时，保存的正文仍会显示，但来源状态会标记为无法完成当前文件核对。
 
-检索验收至少应包含三个文档内有明确依据的问题和一个文档内没有明确答案的问题。对每条结果打开对应 PDF，核对文件、物理页码和完整原文；无结果或来源缺失都要记录，不能仅凭相似度分数判定回答正确。当前检索仍未实现重排和基于来源的回答。
+检索默认使用 `src/rag/config/retrieval.py` 中配置的本地 CrossEncoder `BAAI/bge-reranker-v2-m3`，执行 dense top 20 → rerank top 5。`--candidate-k` 是粗召回数量，默认 20；`--top-k` 是最终交付数量，默认 5。程序使用 `local_files_only=True`，不会联网下载，也不会把问题或文档发送到外部服务。配置路径不存在时会明确报错；可用 `--rerank-model-path` 临时覆盖配置，或加 `--dense-only` 运行 dense 基线：
+
+首次使用需先安装模型到 Hugging Face 缓存（需要联网并占用约 2 GB），例如运行 `uv run hf download BAAI/bge-reranker-v2-m3`。默认配置指向本机当前缓存快照；其他机器或自定义安装目录可在运行命令前设置 `RAG_RERANK_MODEL_PATH=/path/to/model`，也可用 `--rerank-model-path` 覆盖。项目只在本地加载模型，不会自动下载。
+
+```bash
+uv run python -m src.rag.cli.retrieval search data/index-full-384 \
+  "加班费、年休假该怎么算？" \
+  --candidate-k 20 --top-k 5
+```
+
+输出会同时显示 dense 原始排名和分数、rerank 新排名和分数。两类分数来自不同模型，不能直接比较；重排只能调整已经进入前 20 的候选，不能找回 dense 阶段完全漏掉的片段。使用 `--dense-only` 可在相同问题上运行 dense 基线。
+
+检索验收至少应包含三个文档内有明确依据的问题和一个文档内没有明确答案的问题。对每条结果打开对应 PDF，核对文件、物理页码和完整原文；无结果或来源缺失都要记录，不能仅凭相似度或重排分数判定回答正确。两阶段检索的实验协议和未完成的人工比较见[重排实验记录](docs/experiments/reranking.md)。基于来源的回答尚未实现。

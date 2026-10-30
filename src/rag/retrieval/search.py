@@ -9,8 +9,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
+from dataclasses import replace
+from collections.abc import Sequence
 from typing import Any
 
 from llama_index.core import StorageContext, load_index_from_storage
@@ -41,6 +44,8 @@ class RetrievalResult:
     source_exists: bool
     provenance_complete: bool
     provenance_warning: str | None = None
+    original_rank: int | None = None
+    rerank_score: float | None = None
 
     @property
     def page_label(self) -> str:
@@ -110,7 +115,12 @@ def _source_status(source_path: str, manifest: dict[str, Any]) -> tuple[bool, bo
     return True, True, None
 
 
-def _result_from_node(rank: int, node_with_score: Any, manifest: dict[str, Any]) -> RetrievalResult | None:
+def _result_from_node(
+    rank: int,
+    node_with_score: Any,
+    manifest: dict[str, Any],
+    source_status_cache: dict[str, tuple[bool, bool, str | None]],
+) -> RetrievalResult | None:
     """把 LlamaIndex 的命中对象转换为项目结果；来源不完整时丢弃。"""
     node = getattr(node_with_score, "node", None)
     if node is None:
@@ -121,7 +131,9 @@ def _result_from_node(rank: int, node_with_score: Any, manifest: dict[str, Any])
     if provenance is None or not isinstance(text, str) or not text.strip():
         return None
     file_name, source_path, pages = provenance
-    source_exists, provenance_complete, warning = _source_status(source_path, manifest)
+    if source_path not in source_status_cache:
+        source_status_cache[source_path] = _source_status(source_path, manifest)
+    source_exists, provenance_complete, warning = source_status_cache[source_path]
     score = getattr(node_with_score, "score", None)
     if score is not None:
         score = float(score)
@@ -182,8 +194,97 @@ def retrieve(index_path: Path, model_path: Path, question: str, top_k: int = 5) 
     raw_results = retriever.retrieve(question)
 
     results: list[RetrievalResult] = []
+    source_status_cache: dict[str, tuple[bool, bool, str | None]] = {}
     for raw in raw_results:
-        result = _result_from_node(len(results) + 1, raw, manifest)
+        result = _result_from_node(len(results) + 1, raw, manifest, source_status_cache)
         if result is not None:
             results.append(result)
     return results
+
+
+def _validate_rerank_limit(value: int, label: str) -> None:
+    """校验重排阶段使用的正整数限制。"""
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise ValueError(f"{label} 必须是正整数")
+
+
+def _load_cross_encoder(model_path: Path) -> Any:
+    """加载本地 CrossEncoder，并明确禁止缺失模型时联网下载。"""
+    resolved = model_path.expanduser().resolve()
+    if not resolved.is_dir():
+        raise ValueError(f"重排模型不存在或不是目录: {resolved}")
+    try:
+        from sentence_transformers import CrossEncoder
+    except ImportError as exc:
+        raise ValueError("缺少 sentence-transformers，无法加载本地重排模型") from exc
+    return CrossEncoder(
+        str(resolved),
+        device=DEFAULT_EMBEDDING_DEVICE,
+        local_files_only=True,
+        trust_remote_code=False,
+    )
+
+
+def rerank(
+    question: str,
+    candidates: Sequence[RetrievalResult],
+    model_path: Path,
+    top_k: int = 5,
+) -> list[RetrievalResult]:
+    """用本地 CrossEncoder 对 dense 候选重新排序并返回前 ``top_k`` 条。
+
+    dense 相似度保存在 ``score``，重排模型分数单独保存在 ``rerank_score``；
+    ``original_rank`` 保留候选进入重排前的排名，避免把两个分数或两个排名混为一谈。
+    """
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("问题不能为空")
+    _validate_rerank_limit(top_k, "Top-K")
+    rerank_path = model_path.expanduser().resolve()
+    if not rerank_path.is_dir():
+        raise ValueError(f"重排模型不存在或不是目录: {rerank_path}")
+    model = _load_cross_encoder(rerank_path)
+    if not candidates:
+        return []
+
+    pairs = [(question, candidate.text) for candidate in candidates]
+    scores = model.predict(pairs)
+    if len(scores) != len(candidates):
+        raise ValueError("重排模型返回的分数数量与候选数量不一致")
+
+    scored: list[tuple[int, RetrievalResult, float]] = []
+    for index, (candidate, raw_score) in enumerate(zip(candidates, scores)):
+        score = float(raw_score)
+        if not math.isfinite(score):
+            raise ValueError("重排模型返回了非有限分数")
+        scored.append((index, candidate, score))
+
+    scored.sort(key=lambda item: (-item[2], item[0]))
+    results: list[RetrievalResult] = []
+    for rank, (_, candidate, score) in enumerate(scored[:top_k], start=1):
+        original_rank = candidate.original_rank if candidate.original_rank is not None else candidate.rank
+        results.append(replace(candidate, rank=rank, original_rank=original_rank, rerank_score=score))
+    return results
+
+
+def retrieve_and_rerank(
+    index_path: Path,
+    model_path: Path,
+    rerank_model_path: Path,
+    question: str,
+    candidate_k: int = 20,
+    top_k: int = 5,
+) -> list[RetrievalResult]:
+    """先进行 dense 粗召回，再用本地模型重排候选。
+
+    ``candidate_k`` 控制进入重排的 dense 候选数量，``top_k`` 控制最终交付数量。
+    候选不足时返回实际可用数量，不伪造结果；``top_k`` 不得大于 ``candidate_k``。
+    """
+    _validate_rerank_limit(candidate_k, "候选数量")
+    _validate_rerank_limit(top_k, "Top-K")
+    if top_k > candidate_k:
+        raise ValueError("最终 Top-K 不能大于候选数量")
+    rerank_path = rerank_model_path.expanduser().resolve()
+    if not rerank_path.is_dir():
+        raise ValueError(f"重排模型不存在或不是目录: {rerank_path}")
+    candidates = retrieve(index_path, model_path, question, top_k=candidate_k)
+    return rerank(question, candidates, rerank_path, top_k=top_k)

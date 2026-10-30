@@ -18,7 +18,7 @@ from llama_index.core.schema import MetadataMode
 
 from ..chunking.split import chunk_documents
 from ..config.chunking import DEFAULT_CHUNK_OVERLAP
-from ..config.indexing import (DEFAULT_EMBEDDING_DEVICE, DEFAULT_INDEX_CHUNK_SIZE, DEFAULT_MODEL, DEFAULT_REVISION,
+from ..config.indexing import (DEFAULT_EMBEDDING_DEVICE, DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_CHUNK_SIZE,
                                HASH_READ_SIZE, MANIFEST_FILE, IndexCommand, ManifestKey)
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 from ..indexing.store import IndexBuildError, build_index, read_node
@@ -54,7 +54,7 @@ def main(argv: list[str] | None = None) -> int:
     build.add_argument("--end", type=int)
     build.add_argument("--chunk-size", type=int, default=DEFAULT_INDEX_CHUNK_SIZE)
     build.add_argument("--chunk-overlap", type=int, default=DEFAULT_CHUNK_OVERLAP)
-    build.add_argument("--model-path", type=Path, required=True, help=f"Hugging Face 缓存快照目录；示例 {DEFAULT_MODEL} @ {DEFAULT_REVISION}")
+    build.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖配置文件中的 Hugging Face 模型快照目录")
     overview = sub.add_parser(IndexCommand.OVERVIEW, help="查看索引中所有文档的文本覆盖情况")
     overview.add_argument("index", type=Path)
     read = sub.add_parser(IndexCommand.READ)
