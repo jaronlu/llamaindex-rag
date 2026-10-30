@@ -1,25 +1,11 @@
-"""索引构建和本地嵌入模型共用的配置常量。
+"""索引构建、存储和模型身份校验共用的配置常量。
 
 这些值集中放置，供索引 CLI、存储模块和模型身份校验共同使用，避免同一规则在多个
-文件中各自维护。
+文件中各自维护。跨阶段共用的模型路径和推理设备在 ``common`` 中定义。
 """
 
-import os
 from enum import StrEnum
-from pathlib import Path
 from typing import Literal
-
-DEFAULT_EMBEDDING_MODEL_PATH = Path(
-    os.environ.get(
-        "RAG_EMBEDDING_MODEL_PATH",
-        str(
-            Path.home()
-            / ".cache/huggingface/hub/models--BAAI--bge-small-zh-v1.5/snapshots/7999e1d3359715c523056ef9478215996d62a620"
-        ),
-    )
-).expanduser()
-# 这是经验默认值；每个实际片段仍必须按所选模型的 token 上限逐片校验。
-DEFAULT_INDEX_CHUNK_SIZE = 384
 
 # 这些数值来自系统调用 ABI，不是用户配置，不能随模型或索引参数调整。
 DARWIN_RENAME_EXCL = 0x4
@@ -52,9 +38,8 @@ class IndexCommand(StrEnum):
     READ = "read"
 
 
-# 文件摘要按固定大小分块读取；当前索引阶段默认使用 CPU 执行本地推理。
+# 文件摘要按固定大小分块读取。
 HASH_READ_SIZE = 1024 * 1024
-DEFAULT_EMBEDDING_DEVICE = "cpu"
 
 
 class ManifestKey(StrEnum):

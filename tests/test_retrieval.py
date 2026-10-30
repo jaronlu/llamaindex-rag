@@ -212,6 +212,14 @@ class RetrievalCoreTests(unittest.TestCase):
 
         self.assertEqual([result.node_id for result in results], ["node-1", "node-2"])
 
+    def test_rerank_skips_model_load_when_no_candidates(self):
+        with tempfile.TemporaryDirectory() as temp:
+            reranker_path = Path(temp) / "reranker"
+            reranker_path.mkdir()
+            with patch("src.rag.retrieval.search._load_cross_encoder") as loader:
+                self.assertEqual(rerank("问题", [], reranker_path), [])
+            loader.assert_not_called()
+
     def test_cross_encoder_load_uses_local_safe_options(self):
         from src.rag.retrieval.search import _load_cross_encoder
 
@@ -279,13 +287,13 @@ class RetrievalCoreTests(unittest.TestCase):
             reranker_path.mkdir()
             with patch("src.rag.retrieval.search._load_cross_encoder", side_effect=ValueError("模型无法加载")):
                 with self.assertRaisesRegex(ValueError, "模型无法加载"):
-                    rerank("问题", [], reranker_path, top_k=1)
+                    rerank("问题", candidates, reranker_path, top_k=1)
 
 
 class RetrievalCliTests(unittest.TestCase):
     def test_search_uses_configured_embedding_path_when_not_overridden(self):
         from src.rag.cli.retrieval import main
-        from src.rag.config.indexing import DEFAULT_EMBEDDING_MODEL_PATH
+        from src.rag.config.common import DEFAULT_EMBEDDING_MODEL_PATH
 
         with patch("src.rag.cli.retrieval.retrieve", return_value=[]) as retrieve_mock, contextlib.redirect_stdout(io.StringIO()):
             code = main(["search", "/tmp/index", "问题", "--dense-only"])

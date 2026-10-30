@@ -9,8 +9,8 @@ from pathlib import Path
 
 from .logging import logged_command
 
-from ..config.indexing import DEFAULT_EMBEDDING_MODEL_PATH
-from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RERANK_MODEL_PATH, DEFAULT_RETRIEVAL_TOP_K
+from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
+from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
 from ..retrieval.search import retrieve, retrieve_and_rerank
 
 

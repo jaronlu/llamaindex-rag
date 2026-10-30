@@ -18,7 +18,8 @@ from typing import Any
 from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.schema import MetadataMode
 
-from ..config.indexing import DEFAULT_EMBEDDING_DEVICE, HASH_READ_SIZE, MANIFEST_FILE, ManifestKey
+from ..config.common import DEFAULT_INFERENCE_DEVICE
+from ..config.indexing import HASH_READ_SIZE, MANIFEST_FILE, ManifestKey
 from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
 from ..config.ingestion import MetadataKey
 from ..indexing.model import snapshot_identity
@@ -151,7 +152,12 @@ def _result_from_node(
     )
 
 
-def retrieve(index_path: Path, model_path: Path, question: str, top_k: int = 5) -> list[RetrievalResult]:
+def retrieve(
+    index_path: Path,
+    model_path: Path,
+    question: str,
+    top_k: int = DEFAULT_RETRIEVAL_TOP_K,
+) -> list[RetrievalResult]:
     """从持久化索引召回按相似度排序的可读片段。
 
     参数：
@@ -187,7 +193,7 @@ def retrieve(index_path: Path, model_path: Path, question: str, top_k: int = 5) 
     # 与索引构建阶段使用同一设备和本地快照策略；查询文本不会发送到外部服务。
     from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
 
-    model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_EMBEDDING_DEVICE, local_files_only=True)
+    model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_INFERENCE_DEVICE, local_files_only=True)
     context = StorageContext.from_defaults(persist_dir=str(index_path))
     index = load_index_from_storage(context, embed_model=model)
     retriever = index.as_retriever(similarity_top_k=top_k, embed_model=model)
@@ -219,7 +225,7 @@ def _load_cross_encoder(model_path: Path) -> Any:
         raise ValueError("缺少 sentence-transformers，无法加载本地重排模型") from exc
     return CrossEncoder(
         str(resolved),
-        device=DEFAULT_EMBEDDING_DEVICE,
+        device=DEFAULT_INFERENCE_DEVICE,
         local_files_only=True,
         trust_remote_code=False,
     )
@@ -242,9 +248,11 @@ def rerank(
     rerank_path = model_path.expanduser().resolve()
     if not rerank_path.is_dir():
         raise ValueError(f"重排模型不存在或不是目录: {rerank_path}")
-    model = _load_cross_encoder(rerank_path)
+    # 先判空再加载模型：dense 结果可能全部被来源校验过滤，此时没有可重排内容，
+    # 不值得为返回空列表加载数 GB 的 CrossEncoder。模型路径错误仍在上面提前报出。
     if not candidates:
         return []
+    model = _load_cross_encoder(rerank_path)
 
     pairs = [(question, candidate.text) for candidate in candidates]
     scores = model.predict(pairs)

@@ -69,9 +69,9 @@ uv run python -m src.rag.cli.chunking docs/pdf/HowToLiveBetter.pdf --start 5 --e
 
 ## 向量化与索引
 
-默认快照尚未下载时，可运行 `uv run hf download BAAI/bge-small-zh-v1.5 --revision 7999e1d3359715c523056ef9478215996d62a620` 获取对应版本；自定义安装目录可通过 `RAG_EMBEDDING_MODEL_PATH` 指定。
+默认快照尚未下载时，可运行 `uv run hf download BAAI/bge-small-zh-v1.5 --revision 7999e1d3359715c523056ef9478215996d62a620` 获取对应版本；自定义安装目录可通过 `RAG_EMBEDDING_MODEL_PATH` 指定。跨阶段共用的模型路径和推理设备集中在 `src/rag/config/common.py`；模型路径可用 `--model-path` 或环境变量临时覆盖，推理设备目前只能修改该配置。
 
-本阶段使用本地 `BAAI/bge-small-zh-v1.5` 和 LlamaIndex `HuggingFaceEmbedding`、`VectorStoreIndex`，将切片正文转换为向量，来源元数据保存在文档库。需要 Python 3.12，运行 `uv sync` 安装依赖；依赖首次下载需要联网并占用磁盘。默认模型快照路径配置在 `src/rag/config/indexing.py`，CPU 本地推理，不发送文档或问题到外部服务，也不产生模型 API 费用。缓存不存在时需先从可信来源获取相同模型快照，或通过 `--model-path` 覆盖为其他快照目录。程序从缓存目录读取模型名和版本，并对快照文件计算 SHA-256 摘要；目录名本身不能证明模型来源，首次获取时仍应确认下载来源可信。
+本阶段使用本地 `BAAI/bge-small-zh-v1.5` 和 LlamaIndex `HuggingFaceEmbedding`、`VectorStoreIndex`，将切片正文转换为向量，来源元数据保存在文档库。需要 Python 3.12，运行 `uv sync` 安装依赖；依赖首次下载需要联网并占用磁盘。默认模型快照路径配置在 `src/rag/config/common.py`，CPU 本地推理，不发送文档或问题到外部服务，也不产生模型 API 费用。缓存不存在时需先从可信来源获取相同模型快照，或通过 `--model-path` 覆盖为其他快照目录。程序从缓存目录读取模型名和版本，并对快照文件计算 SHA-256 摘要；目录名本身不能证明模型来源，首次获取时仍应确认下载来源可信。
 
 ```bash
 uv run python -m src.rag.cli.indexing build data/index-pages-4-5 docs/pdf/HowToLiveBetter.pdf \
@@ -103,7 +103,7 @@ uv run --with mypy python -m mypy --check-untyped-defs src tests
 
 ## 检索
 
-检索使用已保存索引中的向量和 Node，不会重新解析 PDF。默认使用 `src/rag/config/indexing.py` 配置的 embedding 模型路径；它必须与构建索引时使用的快照一致。需要换模型目录时，可用 `--model-path` 或环境变量 `RAG_EMBEDDING_MODEL_PATH` 覆盖，并确保与索引配置相同。程序会比较模型名、revision、快照文件摘要、向量维度和切片配置，配置不兼容会拒绝查询。
+检索使用已保存索引中的向量和 Node，不会重新解析 PDF。默认使用 `src/rag/config/common.py` 配置的 embedding 模型路径；它必须与构建索引时使用的快照一致。需要换模型目录时，可用 `--model-path` 或环境变量 `RAG_EMBEDDING_MODEL_PATH` 覆盖，并确保与索引配置相同。程序会比较模型名、revision、快照文件摘要、向量维度和切片配置，配置不兼容会拒绝查询。
 
 ```bash
 uv run python -m src.rag.cli.retrieval search data/index-pages-4-5 \
@@ -113,9 +113,17 @@ uv run python -m src.rag.cli.retrieval search data/index-pages-4-5 \
 
 默认结果按重排分数排序，同时显示 dense 原始排名/相似度分数、rerank 分数、片段 ID、完整正文、文件名、来源路径和 PDF 物理页码。两类分数不能互相比较，也不是答案正确率。若使用 `--dense-only`，结果才按向量相似度排序；dense 分数越高表示向量越相似，只能在同一索引和查询配置下比较。索引中缺少正文、文件名或合法物理页码的节点会被排除。源文件已移动或删除时，保存的正文仍会显示，但来源状态会标记为无法完成当前文件核对。
 
-检索默认使用 `src/rag/config/retrieval.py` 中配置的本地 CrossEncoder `BAAI/bge-reranker-v2-m3`，执行 dense top 20 → rerank top 5。`--candidate-k` 是粗召回数量，默认 20；`--top-k` 是最终交付数量，默认 5。程序使用 `local_files_only=True`，不会联网下载，也不会把问题或文档发送到外部服务。配置路径不存在时会明确报错；可用 `--rerank-model-path` 临时覆盖配置，或加 `--dense-only` 运行 dense 基线：
+检索默认使用 `src/rag/config/common.py` 中配置的本地 CrossEncoder `BAAI/bge-reranker-v2-m3`，执行 dense top 20 → rerank top 5。`src/rag/config/retrieval.py` 集中管理 `candidate_k` 和 `top_k` 默认值；每次运行可用 CLI 参数覆盖。程序使用 `local_files_only=True`，不会联网下载，也不会把问题或文档发送到外部服务。配置路径不存在时会明确报错；可用 `--rerank-model-path` 临时覆盖配置，或加 `--dense-only` 运行 dense 基线：
 
 首次使用需先安装模型到 Hugging Face 缓存（需要联网并占用约 2 GB），例如运行 `uv run hf download BAAI/bge-reranker-v2-m3 --revision 953dc6f6f85a1b2dbfca4c34a2796e7dde08d41e`。默认配置指向该快照；其他机器或自定义安装目录可在运行命令前设置 `RAG_RERANK_MODEL_PATH=/path/to/model`，也可用 `--rerank-model-path` 覆盖。项目只在本地加载模型，不会自动下载。
+
+首次进行全文检索时，先用完整 PDF 构建索引。索引目录必须不存在；成功后才能运行检索命令：
+
+```bash
+uv run python -m src.rag.cli.indexing build data/index-full-384 docs/pdf/HowToLiveBetter.pdf
+```
+
+默认切片大小为 384 token、重叠 64 token，因此目录名中的 `384` 只是便于识别参数的名称，不会由程序自动创建。索引构建可能需要约一分钟，并占用约 40 MB 磁盘空间；具体以本机模型和输出为准。若目录已存在，请换一个新目录。
 
 ```bash
 uv run python -m src.rag.cli.retrieval search data/index-full-384 \

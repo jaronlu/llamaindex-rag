@@ -17,9 +17,9 @@ from llama_index.core import Document
 from llama_index.core.schema import MetadataMode
 
 from ..chunking.split import chunk_documents
-from ..config.chunking import DEFAULT_CHUNK_OVERLAP
-from ..config.indexing import (DEFAULT_EMBEDDING_DEVICE, DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INDEX_CHUNK_SIZE,
-                               HASH_READ_SIZE, MANIFEST_FILE, IndexCommand, ManifestKey)
+from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_INDEX_CHUNK_SIZE
+from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INFERENCE_DEVICE
+from ..config.indexing import HASH_READ_SIZE, MANIFEST_FILE, IndexCommand, ManifestKey
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 from ..indexing.store import IndexBuildError, build_index, read_node
 from ..indexing.model import snapshot_identity
@@ -128,7 +128,7 @@ def main(argv: list[str] | None = None) -> int:
         for item in versions:
             item[ManifestKey.SOURCE_ID] = hashlib.sha256(item[ManifestKey.PATH].encode("utf-8")).hexdigest()
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
-        model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_EMBEDDING_DEVICE, local_files_only=True)
+        model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_INFERENCE_DEVICE, local_files_only=True)
         # 当前 LlamaIndex 没有公开这里需要的底层 tokenizer，因此读取已安装版本的
         # 内部模型接口；同时把文本前缀和特殊 token 算入长度，避免预检通过后被静默截断。
         tokenizer = model._model.tokenizer
