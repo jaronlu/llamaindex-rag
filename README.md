@@ -2,11 +2,12 @@
 
 ## 从哪里开始读代码
 
-目前实现到索引阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引`。检索、重排和回答尚未实现，也不能仅凭索引构建成功判断检索质量。
+目前已实现到检索阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → Top-K 检索`。重排和基于来源的回答尚未实现；检索分数也不能单独证明候选相关或答案正确。
 
 1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
 2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
-3. 最后看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
+3. 接着看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
+4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；结果继续使用索引中保存的完整正文与来源元数据。
 
 `config/` 集中存放默认值和字段名；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
 
@@ -28,7 +29,7 @@ uv run python -c 'from llama_index.core import SimpleDirectoryReader; from llama
 
 ## 运行日志
 
-三个命令行入口会将阶段开始、结束、耗时、参数、数量和失败信息写入 `data/logs/rag.log`。每次命令有独立的 `run_id`，可用它串联加载、切片与索引事件及异常堆栈的每一行；非零退出码以 `WARNING command.finished` 标记；索引日志还记录向量化数量和发布状态。终端继续显示供人工核对的完整正文和来源。日志默认不主动记录正文、切片或向量，但文件路径和第三方异常及堆栈可能包含敏感内容，请按本地资料的保密要求管理日志。
+四个阶段命令行入口会将阶段开始、结束、耗时、参数、数量和失败信息写入 `data/logs/rag.log`。每次命令有独立的 `run_id`，可用它串联加载、切片、索引与检索事件及异常堆栈的每一行；非零退出码以 `WARNING command.finished` 标记；索引日志还记录向量化数量和发布状态。终端继续显示供人工核对的完整正文和来源。日志默认不主动记录正文、切片或向量，但文件路径和第三方异常及堆栈可能包含敏感内容，请按本地资料的保密要求管理日志。
 
 可通过环境变量配置日志文件和级别（`DEBUG`、`INFO`、`WARNING`、`ERROR`）：
 
@@ -97,4 +98,19 @@ uv run python -m unittest discover -s tests -v
 uv run --with mypy python -m mypy --check-untyped-defs src tests
 ```
 
-索引构建成功不代表语义检索质量达标。全量文档、第二份 PDF、不同内容版本和路径变化的人工验收以及检索质量比较仍需后续检查。
+索引构建成功不代表语义检索质量达标。第二份 PDF、不同内容版本和路径变化的人工验收仍需后续检查；本地模型、索引和固定问题的检索观察见[检索实验记录](docs/experiments/retrieval.md)。
+
+## 检索
+
+检索使用已保存索引中的向量和 Node，不会重新解析 PDF。查询时必须传入构建索引时使用的同一个 Hugging Face 快照目录；程序会比较模型名、revision、快照文件摘要、向量维度和切片配置，配置不兼容会拒绝查询。
+
+```bash
+uv run python -m src.rag.cli.retrieval search data/index-pages-4-5 \
+  "如何改善生活质量？" \
+  --model-path "$HOME/.cache/huggingface/hub/models--BAAI--bge-small-zh-v1.5/snapshots/7999e1d3359715c523056ef9478215996d62a620" \
+  --top-k 5
+```
+
+输出按相似度从高到低列出候选片段，包含排名、分数、片段 ID、完整正文、文件名、来源路径和 PDF 物理页码。分数越高表示向量越相似，只能在同一索引和查询配置下比较；它不是答案正确率。索引中缺少正文、文件名或合法物理页码的节点会被排除。源文件已移动或删除时，保存的正文仍会显示，但来源状态会标记为无法完成当前文件核对。
+
+检索验收至少应包含三个文档内有明确依据的问题和一个文档内没有明确答案的问题。对每条结果打开对应 PDF，核对文件、物理页码和完整原文；无结果或来源缺失都要记录，不能仅凭相似度分数判定回答正确。当前检索仍未实现重排和基于来源的回答。
