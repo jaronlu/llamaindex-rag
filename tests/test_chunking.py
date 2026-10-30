@@ -11,7 +11,7 @@ from llama_index.core import Document
 from llama_index.core.schema import MetadataMode, TextNode
 
 from src.rag.chunking.split import chunk_documents
-from src.rag.chunking.offset_splitter import split_with_offsets
+from src.rag.chunking.offset_splitter import split_with_offsets, structure_block_starts
 from src.rag.cli.chunking import main
 
 
@@ -68,6 +68,35 @@ class ChunkingTests(unittest.TestCase):
         self.assertTrue(all(text.strip() for text in texts))
         self.assertTrue(all(n.metadata["page_numbers"] == [2] and n.metadata["source_path"] == "/a.pdf" for n in nodes))
         self.assertTrue(any(texts[0].endswith(texts[1][:i]) for i in range(10, len(texts[1]) + 1)))
+
+    def test_chunk_boundaries_prefer_structure_blocks(self):
+        text = "\n".join([
+            "1. 第一条目。",
+            "• 成本：不花钱。",
+            "• 说人话：按 1.5 倍给钱。",
+            "2. 第二条目。",
+            "• 来源：官方文件。",
+        ])
+        doc = Document(text=text, metadata={"file_name": "a.pdf", "source_path": "/a.pdf", "source_id": "a", "page_numbers": [1]})
+        nodes = chunk_documents([doc], 30, 5)
+        starts = structure_block_starts(text)
+        self.assertGreater(len(starts), 2)
+        self.assertGreater(len(nodes), 1)
+        # 每个片段都从结构块起点开始，不会落在条目或来源行的中间。
+        for node in nodes:
+            assert isinstance(node, TextNode)
+            self.assertIn(node.start_char_idx, starts)
+
+    def test_oversized_structure_block_falls_back_to_sentence_split(self):
+        text = "1. 标题。\n• 说人话：" + "这是一句很长的说明。" * 20
+        doc = Document(text=text, metadata={"file_name": "a.pdf", "source_path": "/a.pdf", "source_id": "a", "page_numbers": [1]})
+        nodes = chunk_documents([doc], 30, 5)
+        self.assertGreater(len(nodes), 1)
+        for node in nodes:
+            assert isinstance(node, TextNode)
+            start, end = node.start_char_idx, node.end_char_idx
+            assert start is not None and end is not None
+            self.assertEqual(text[start:end], node.get_content(metadata_mode=MetadataMode.NONE))
 
     def test_non_pdf_is_rejected(self):
         doc = Document(text="A paragraph.", metadata={"file_name": "a.txt", "source_path": "/a.txt", "source_id": "a"})

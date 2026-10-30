@@ -8,3 +8,8 @@ DEFAULT_CHUNK_SIZE = 512
 DEFAULT_CHUNK_OVERLAP = 64
 # 索引默认值更小，为 embedding 模型留出 token 预算；实际片段仍逐一校验上限。
 DEFAULT_INDEX_CHUNK_SIZE = 384
+
+# 结构边界：行首的项目符号或编号条目视为新块起点。
+# PDF 抽取的正文通常只有单换行，LlamaIndex 默认的空行段落分隔不生效；没有这条规则时
+# 切片会退化成纯句子切分，边界可能落在引文或 URL 中间，产生以残缺来源开头的片段。
+STRUCTURE_BLOCK_START_REGEX = r"^[ \t]*(?:[•‣·▪●○◦]|[-*]\s|\d+[.、](?!\d))"

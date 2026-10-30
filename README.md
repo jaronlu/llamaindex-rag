@@ -65,6 +65,8 @@ uv run python -m src.rag.cli.chunking docs/pdf/HowToLiveBetter.pdf --start 5 --e
 
 将参数改为 `--chunk-size 256 --chunk-overlap 64`，可对照同一页的边界。省略 `--end` 会处理到末页；替换路径可检查其他 PDF。默认大小为 512、重叠为 64，单位是 LlamaIndex 默认 tokenizer 的 token，长度统计针对片段正文；重叠为上限，实际取决于句子边界。配置须满足大小大于 0，且 `0 ≤ 重叠 < 大小`。输出包含完整文本、片段编号、运行时节点 ID、文件路径、物理页码及长度统计；节点 ID 每次运行会重新生成。空页和失败页会明确列出，失败页使命令返回非零状态。
 
+切片先在行首项目符号或编号条目处划出结构块（`src/rag/config/chunking.py` 的 `STRUCTURE_BLOCK_START_REGEX`），让片段边界优先落在条目之间，块内仍然交给 LlamaIndex 切分；PDF 提取的单换行会让默认段落分隔符失效，没有这一步时片段会从「来源 / 备注」行中间开始。规则只看行首符号，换 PDF 无需修改；`①`、`(1)` 这类符号目前不认，遇到时补充该正则即可。
+
 使用 LlamaIndex `SentenceSplitter` 的句子拆分规则切片，通过适配其内部合并步骤记录原文位置；这依赖当前锁定版本的内部接口，升级 LlamaIndex 时应重新验证。同一文件的连续物理页面以换行拼接，切片可跨页；PDF 的 `page_numbers` 是唯一页码来源，单页例如 `[5]`，跨页例如 `[5, 6]`，命令行由它生成位置展示。缺页、空页及不同文件之间不拼接。切片入口目前支持 PDF，要求文件名、来源路径、来源标识及物理页码；其他格式引入时再设计其定位方式。切片大小仅计算正文，来源元数据仍保存在节点中。重叠是最大值，并不保证每个边界或每个观点完整；PDF 提取的页眉、页脚和换行可能干扰阅读，应对照原 PDF。此阶段只做本地处理，不调用模型或外部服务。实验结果和限制见 [切片实验记录](docs/experiments/chunking.md)。
 
 ## 向量化与索引
@@ -120,13 +122,13 @@ uv run python -m src.rag.cli.retrieval search data/index-pages-4-5 \
 首次进行全文检索时，先用完整 PDF 构建索引。索引目录必须不存在；成功后才能运行检索命令：
 
 ```bash
-uv run python -m src.rag.cli.indexing build data/index-full-384 docs/pdf/HowToLiveBetter.pdf
+uv run python -m src.rag.cli.indexing build data/index-from14-384 docs/pdf/HowToLiveBetter.pdf --start 14
 ```
 
-默认切片大小为 384 token、重叠 64 token，因此目录名中的 `384` 只是便于识别参数的名称，不会由程序自动创建。索引构建可能需要约一分钟，并占用约 40 MB 磁盘空间；具体以本机模型和输出为准。若目录已存在，请换一个新目录。
+默认切片大小为 384 token、重叠 64 token，目录名中的 `384` 只是便于识别参数的名称，不会由程序自动创建。这里的 `--start 14` 跳过了本书的目录、前言和各节简介：这些页只罗列话题、没有操作步骤，却会因为词面重合排到检索前列；各节简介本身横跨 11–13 页，`--start` 只能从某页开始，所以只能连前言 6–10 页一起跳过。前言里有证据等级定义和术语表，需要时再单独建索引。换 PDF 时先看前置页再定起始页。索引构建可能需要约一分钟，并占用约 40 MB 磁盘空间；具体以本机模型和输出为准。若目录已存在，请换一个新目录。
 
 ```bash
-uv run python -m src.rag.cli.retrieval search data/index-full-384 \
+uv run python -m src.rag.cli.retrieval search data/index-from14-384 \
   "加班费、年休假该怎么算？" \
   --candidate-k 20 --top-k 5
 ```
