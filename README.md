@@ -1,5 +1,21 @@
 # LlamaIndex RAG
 
+## Quickstart：首次检索
+
+需要 Python 3.12 和 `uv`。以下步骤用仓库附带的 PDF 第 291–292 页建立一个小型本地索引，再检索一个文档内问题；只运行本地 embedding，不需要生成模型密钥，也不会把问题或文档发送到外部服务。
+
+```bash
+uv sync
+uv run hf download BAAI/bge-small-zh-v1.5 --revision 7999e1d3359715c523056ef9478215996d62a620
+uv run python -m src.rag.cli.indexing build data/quickstart-index docs/pdf/HowToLiveBetter.pdf --start 291 --end 292
+uv run python -m src.rag.cli.retrieval search data/quickstart-index \
+  "加班费、年休假该怎么算？" --dense-only --top-k 5
+```
+
+首次下载模型需要联网；已有相同快照时，下载命令会复用本地缓存。**必须先看到索引命令输出“索引完成”，再运行检索命令**；如果只运行检索命令，或索引目录名不一致，会收到“索引不存在”的错误。索引输出目录必须尚不存在；重复体验时请换一个新的目录名。检索结果会显示完整片段、PDF 物理页码和来源状态，可打开 PDF 对照第 291–292 页核查。这里使用 `--dense-only` 运行 dense 基线，不需要额外准备约 2 GB 的重排模型。要试自己的 PDF，可替换 PDF 路径、页码范围和问题，并使用新的索引目录；问题及片段仍留在本机，直到使用后面的回答功能。
+
+这一步返回的是检索证据，不是生成式回答。回答功能会把问题和检索片段发送到配置的 OpenAI 兼容服务并产生费用；配置和数据流向见[回答](#回答)。
+
 ## 从哪里开始读代码
 
 目前已实现到回答阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索 → 可选重排 → 基于片段的回答`。检索分数和重排分数都不能单独证明候选相关或答案正确，生成模型也不保证回答忠实于原文，仍需人工核对。
@@ -7,7 +23,7 @@
 1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
 2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
 3. 接着看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
-4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；可选的本地 CrossEncoder 会对 dense 候选重新排序，结果继续使用索引中保存的完整正文与来源元数据。
+4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；默认由本地 CrossEncoder 对 dense 候选重新排序，传入 `--dense-only` 可运行 dense 基线。结果继续使用索引中保存的完整正文与来源元数据。
 5. 最后看 [回答命令](src/rag/cli/answering.py) 和 [回答逻辑](src/rag/answering/generate.py)。检索片段按顺序编号后交给 OpenAI 兼容的生成模型，回答中的 `[n]` 会与证据逐条核对；密钥只从环境变量读取。
 
 `config/` 集中存放默认值和字段名；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
