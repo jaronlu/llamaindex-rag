@@ -199,7 +199,38 @@ uv run python -m src.rag.cli.serve data/quickstart-index
 uv run python -m src.rag.cli.serve data/quickstart-index --host 0.0.0.0
 ```
 
-先用 `ipconfig getifaddr en0` 查本机局域网 IP，再用手机访问 `http://<IP>:8000/health` 确认连通。`0.0.0.0` 会让同网段其他设备也能访问，只在可信网络使用；不要暴露到公网。
+`0.0.0.0` 会让同网段其他设备也能访问，只在可信网络使用；不要暴露到公网。服务本身不广播地址，手机端也没有自动发现，需要按下一节的方法手动查 IP。
+
+### 查看本机局域网地址
+
+服务只负责监听，不知道该对外使用哪个地址，需要自己查。Wi-Fi 接口通常是 `en0`：
+
+```bash
+ipconfig getifaddr en0
+```
+
+输出例如 `192.168.1.10`，手机就访问 `http://192.168.1.10:8000`。
+
+有线网络、iPhone 热点或多个网卡时，接口名可能不是 `en0`。先看默认路由走哪个接口，再查它的地址：
+
+```bash
+route -n get default | awk '/interface:/{print $2}'
+ipconfig getifaddr "$(route -n get default | awk '/interface:/{print $2}')"
+```
+
+也可以打开 系统设置 → 网络（Wi-Fi 则点“详细信息”）直接读取 IP 地址。
+
+如果查到多个 `inet` 地址（VPN、虚拟机、多个网卡），选和手机处于同一网段的那条；`utun*`、`bridge*` 这类接口不是给手机用的。iPhone 个人热点下地址通常是 `172.20.10.x`，手机连上该热点后填这个地址。
+
+查出地址后先确认监听范围：
+
+```bash
+lsof -nP -iTCP:8000 -sTCP:LISTEN
+```
+
+显示 `*:8000` 表示监听所有网卡；只显示 `127.0.0.1:8000` 时手机连不上，需要按上面的命令加 `--host 0.0.0.0` 重启。
+
+最后用手机 Safari 打开 `http://<IP>:8000/health`，返回 JSON 说明网络通，再把同一地址填进 App。IP 由路由器分配，换网络或续租后可能变化，届时重新查一次并更新 App 里的地址。
 
 ### 访问令牌
 
