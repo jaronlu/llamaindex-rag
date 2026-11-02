@@ -43,7 +43,7 @@ struct SettingsView: View {
 
                 resultSection
             }
-            .navigationTitle("RAG 客户端")
+            .navigationTitle("设置")
         }
     }
 

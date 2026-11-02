@@ -2,7 +2,7 @@
 
 SwiftUI 客户端，只通过局域网调用 Mac 上的 `rag.cli.serve`。App 内没有索引、文档、嵌入模型或生成密钥。
 
-当前进度：设置页 + `GET /health` 连通性检查。问答页尚未实现。
+当前进度：问答页（流式回答、证据和引用检查）+ 设置页（地址与 `GET /health` 连通性检查）。
 
 ## 目录
 
@@ -11,10 +11,12 @@ ios/
 ├── RAGClient.xcodeproj/          # 手写的 Xcode 工程（同步文件夹，无需 xcodegen）
 ├── RAGClient-Info.plist          # ATS 例外与本地网络权限说明
 └── RAGClient/
-    ├── RAGClientApp.swift
+    ├── RAGClientApp.swift        # 问答 / 设置两个标签
+    ├── AskView.swift             # 提问、流式回答、证据列表
+    ├── AskModel.swift            # 问题状态与请求取消
     ├── SettingsView.swift
     ├── ServerSettings.swift      # 地址校验与 UserDefaults 持久化
-    └── APIClient.swift           # 请求 /health 和错误翻译
+    └── APIClient.swift           # /health、/ask 流式请求和 SSE 解析
 ```
 
 ## 运行（模拟器）
@@ -30,6 +32,15 @@ ios/
 3. 设置页默认地址是 `http://127.0.0.1:8000`，点“测试连接”。成功时显示状态、片段数、模型和索引路径；索引损坏时状态显示“索引不可用”并给出原因。
 
 最低 iOS 版本 18.0。
+
+## 问答流程
+
+1. 切到“问答”标签，输入问题后点发送。请求固定使用 `POST /ask` 和 `"stream": true`。
+2. 界面先显示“正在检索证据”，收到 `evidence` 后立刻列出文件名、PDF 物理页码和来源状态；点开可看完整原文和本机路径，并复制原文。
+3. 回答随 `delta` 逐段出现；收到 `done` 后才显示引用检查（引用编号、无效编号、未引用提示）。
+4. 生成中可点停止按钮取消；取消、流中断和 `error` 都会明确标记为不完整，已收到的证据保留。
+
+生成会调用 Mac 上配置的云端模型并产生费用；检索和证据展示本身不调用生成模型。
 
 ## 运行（自己的 iPhone）
 
@@ -54,4 +65,6 @@ ios/
 ## 已知限制
 
 - 手写工程使用 Xcode 16+ 的同步文件夹；改动 `RAGClient/` 下的文件不需要动工程文件，新增目录同理。
-- 没有单元测试目标；逻辑验证靠 Xcode 运行和后续问答页联调。
+- 没有单元测试目标；逻辑验证靠 Xcode 运行和真实服务联调。
+- 地址仍需手动填写，App 不广播也不自动发现服务；IP 变化后要重新查并修改。
+- 问答页不保存历史记录，切换标签或重新提问不会保留上一次结果。
