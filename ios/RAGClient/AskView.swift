@@ -73,9 +73,7 @@ struct AskView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("回答")
                 .font(.headline)
-            Text(model.answerText)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            MarkdownText(text: model.answerText)
         }
     }
 
