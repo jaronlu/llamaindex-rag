@@ -21,6 +21,8 @@ from ..config.answering import (
     DEFAULT_ANSWER_API_BASE,
     DEFAULT_ANSWER_API_KEY_ENV,
     DEFAULT_ANSWER_MODEL,
+    DEFAULT_MIN_DENSE_SCORE,
+    DEFAULT_MIN_RERANK_SCORE,
 )
 from ..config.api import API_TOKEN_ENV, DEFAULT_API_HOST, DEFAULT_API_PORT
 from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
@@ -82,6 +84,18 @@ def main(argv: list[str] | None = None) -> int:
         default=DEFAULT_ANSWER_API_KEY_ENV,
         help=f"保存密钥的环境变量名（默认 {DEFAULT_ANSWER_API_KEY_ENV}）",
     )
+    parser.add_argument(
+        "--min-rerank-score",
+        type=float,
+        default=DEFAULT_MIN_RERANK_SCORE,
+        help=f"回答时重排证据的最低相关分（默认 {DEFAULT_MIN_RERANK_SCORE}）",
+    )
+    parser.add_argument(
+        "--min-dense-score",
+        type=float,
+        default=DEFAULT_MIN_DENSE_SCORE,
+        help=f"回答时 dense 证据的最低相似度（默认 {DEFAULT_MIN_DENSE_SCORE}）",
+    )
     args = parser.parse_args(argv)
 
     if not 1 <= args.port <= 65535:
@@ -101,6 +115,7 @@ def main(argv: list[str] | None = None) -> int:
     print(f"监听: http://{args.host}:{args.port}")
     print(f"默认请求参数: dense top {DEFAULT_CANDIDATE_K} → rerank top {DEFAULT_RETRIEVAL_TOP_K}")
     print(f"生成模型: {args.llm_model}（{args.api_base}）")
+    print(f"回答相关度门槛: dense ≥ {args.min_dense_score} / rerank ≥ {args.min_rerank_score}")
     if args.host not in _LOOPBACK_HOSTS:
         print("警告：正在监听非本机地址，同一网段的其他设备可以访问；请确认网络可信，不要暴露到公网。")
     else:
@@ -117,6 +132,8 @@ def main(argv: list[str] | None = None) -> int:
         answer_model=args.llm_model,
         answer_api_base=args.api_base,
         answer_api_key_env=args.api_key_env,
+        min_rerank_score=args.min_rerank_score,
+        min_dense_score=args.min_dense_score,
     )
     app = create_app(settings)
     try:

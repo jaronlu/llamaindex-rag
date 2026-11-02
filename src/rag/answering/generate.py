@@ -11,11 +11,12 @@ from __future__ import annotations
 import os
 import re
 from collections.abc import Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
 
+from ..config.answering import DEFAULT_MIN_DENSE_SCORE, DEFAULT_MIN_RERANK_SCORE
 from ..retrieval.search import RetrievalResult
 
 if TYPE_CHECKING:
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 # 这一误报边界记录在 docs/knowledge/07-answer-issues.md。
 CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
-INSUFFICIENT_EVIDENCE_ANSWER = "未在文档中检索到可交付的片段，无法基于资料回答。"
+INSUFFICIENT_EVIDENCE_ANSWER = "未在文档中检索到与问题足够相关的内容，无法基于资料回答。"
 
 SYSTEM_PROMPT = (
     "你是文档问答助手。只能依据用户给出的证据片段回答，不得使用证据之外的知识、"
@@ -107,6 +108,31 @@ def create_llm(
         max_tokens=max_tokens,
         timeout=timeout,
     )
+
+
+def select_relevant_evidence(
+    results: Sequence[RetrievalResult],
+    *,
+    min_rerank_score: float = DEFAULT_MIN_RERANK_SCORE,
+    min_dense_score: float = DEFAULT_MIN_DENSE_SCORE,
+) -> list[RetrievalResult]:
+    """按相关性分数过滤证据，并把保留项重新编号。
+
+    重排分和 dense 相似度的量纲不同，分别使用不同阈值。结果是否经过重排，以第一条
+    是否带 rerank_score 判断；缺失分数的片段无法证明相关，直接丢弃。返回的 rank
+    从 1 连续编号，避免过滤后“证据 2”对应回答里的 [1] 这种错位。
+    """
+    if not results:
+        return []
+    reranked = results[0].rerank_score is not None
+    threshold = min_rerank_score if reranked else min_dense_score
+    selected: list[RetrievalResult] = []
+    for result in results:
+        score = result.rerank_score if reranked else result.score
+        if score is None or score < threshold:
+            continue
+        selected.append(replace(result, rank=len(selected) + 1))
+    return selected
 
 
 def format_evidence(results: Sequence[RetrievalResult]) -> str:

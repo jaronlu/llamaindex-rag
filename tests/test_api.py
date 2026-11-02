@@ -32,11 +32,17 @@ def setUpModule():
     unittest.addModuleCleanup(env.stop)
 
 
-def make_result(rank: int = 1, *, complete: bool = True) -> RetrievalResult:
-    """构造一条带来源的检索结果，来源状态可切换以检查警告文案。"""
+def make_result(
+    rank: int = 1,
+    *,
+    complete: bool = True,
+    score: float = 0.9,
+    rerank_score: float | None = None,
+) -> RetrievalResult:
+    """构造一条带来源的检索结果，来源和分数可切换以检查过滤与警告文案。"""
     return RetrievalResult(
         rank=rank,
-        score=0.9,
+        score=score,
         node_id=f"node-{rank}",
         text="原文片段",
         file_name="source.pdf",
@@ -45,6 +51,7 @@ def make_result(rank: int = 1, *, complete: bool = True) -> RetrievalResult:
         source_exists=complete,
         provenance_complete=complete,
         provenance_warning=None if complete else "来源文件不存在或已移动: /docs/source.pdf",
+        rerank_score=rerank_score,
     )
 
 
@@ -179,6 +186,12 @@ class SearchTests(ApiTestCase):
         self.assertFalse(item["provenance_complete"])
         self.assertIn("无法完成当前文件核对", item["source_status"])
 
+    def test_search_keeps_low_relevance_candidates_for_diagnostics(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1, score=0.1)]):
+            response = self.client().post("/search", json={"question": "你好"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()["results"]), 1)
+
     def test_dense_only_uses_dense_retriever(self) -> None:
         with patch("src.rag.api.app.retrieve", return_value=[make_result(1)]) as dense, patch(
             "src.rag.api.app.retrieve_and_rerank"
@@ -213,6 +226,18 @@ class AskTests(ApiTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertFalse(response.json()["llm_called"])
         self.assertEqual(response.json()["answer"], INSUFFICIENT_EVIDENCE_ANSWER)
+        resolve.assert_not_called()
+
+    def test_ask_filters_low_relevance_without_key(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1, score=0.1)]), patch(
+            "src.rag.api.app.resolve_api_key"
+        ) as resolve:
+            response = self.client().post("/ask", json={"question": "你好"})
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertFalse(body["llm_called"])
+        self.assertEqual(body["answer"], INSUFFICIENT_EVIDENCE_ANSWER)
+        self.assertEqual(body["evidence"], [])
         resolve.assert_not_called()
 
     def test_ask_missing_key_is_503(self) -> None:
@@ -314,6 +339,17 @@ class StreamTests(ApiTestCase):
         self.assertEqual([name for name, _ in events], ["status", "evidence", "done"])
         self.assertFalse(events[-1][1]["llm_called"])
         self.assertEqual(events[-1][1]["answer"], INSUFFICIENT_EVIDENCE_ANSWER)
+        resolve.assert_not_called()
+
+    def test_stream_filters_low_relevance_without_generation(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1, score=0.1)]), patch(
+            "src.rag.api.app.resolve_api_key"
+        ) as resolve:
+            response = self.client().post("/ask", json={"question": "你好", "stream": True})
+        events = parse_sse(response.text)
+        self.assertEqual([name for name, _ in events], ["status", "evidence", "done"])
+        self.assertEqual(events[1][1]["items"], [])
+        self.assertFalse(events[-1][1]["llm_called"])
         resolve.assert_not_called()
 
     def test_stream_reports_truncated_output(self) -> None:

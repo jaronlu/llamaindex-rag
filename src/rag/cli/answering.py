@@ -16,7 +16,13 @@ from pathlib import Path
 from .arguments import add_retrieval_arguments
 from .logging import logged_command
 
-from ..answering.generate import Answer, create_llm, generate_answer, resolve_api_key
+from ..answering.generate import (
+    Answer,
+    create_llm,
+    generate_answer,
+    resolve_api_key,
+    select_relevant_evidence,
+)
 from ..config.answering import (
     DEFAULT_ANSWER_API_BASE,
     DEFAULT_ANSWER_API_KEY_ENV,
@@ -24,6 +30,8 @@ from ..config.answering import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_TEMPERATURE,
     DEFAULT_ANSWER_TIMEOUT_SECONDS,
+    DEFAULT_MIN_DENSE_SCORE,
+    DEFAULT_MIN_RERANK_SCORE,
 )
 from ..config.retrieval import DEFAULT_RETRIEVAL_TOP_K
 from ..retrieval.search import RetrievalResult, retrieve, retrieve_and_rerank
@@ -87,6 +95,18 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--llm-model", default=DEFAULT_ANSWER_MODEL, help=f"生成模型名称（默认 {DEFAULT_ANSWER_MODEL}）")
     parser.add_argument("--api-base", default=DEFAULT_ANSWER_API_BASE, help="OpenAI 兼容服务地址")
     parser.add_argument("--api-key-env", default=DEFAULT_ANSWER_API_KEY_ENV, help=f"保存密钥的环境变量名（默认 {DEFAULT_ANSWER_API_KEY_ENV}）")
+    parser.add_argument(
+        "--min-rerank-score",
+        type=float,
+        default=DEFAULT_MIN_RERANK_SCORE,
+        help=f"重排证据的最低相关分（默认 {DEFAULT_MIN_RERANK_SCORE}；换模型或索引需重新校准）",
+    )
+    parser.add_argument(
+        "--min-dense-score",
+        type=float,
+        default=DEFAULT_MIN_DENSE_SCORE,
+        help=f"dense 证据的最低相似度（默认 {DEFAULT_MIN_DENSE_SCORE}；换模型或索引需重新校准）",
+    )
     args = parser.parse_args(argv)
 
     try:
@@ -106,16 +126,26 @@ def main(argv: list[str] | None = None) -> int:
         print(f"回答失败: {exc}", file=sys.stderr)
         return 1
 
+    candidate_count = len(results)
+    results = select_relevant_evidence(
+        results,
+        min_rerank_score=args.min_rerank_score,
+        min_dense_score=args.min_dense_score,
+    )
+
     print(f"问题: {args.question}")
     print(f"索引: {args.index.expanduser().resolve()}")
     print(f"Top-K: {args.top_k}")
     print("检索模式: dense" if args.dense_only else f"检索模式: dense top {args.candidate_k} → rerank top {args.top_k}")
+    print(f"相关度门槛: dense ≥ {args.min_dense_score} / rerank ≥ {args.min_rerank_score}")
+    if candidate_count != len(results):
+        print(f"相关度过滤: {candidate_count} 条候选中 {candidate_count - len(results)} 条低于门槛，未作为证据。")
     print(f"生成模型: {args.llm_model}")
     print(f"API 地址: {args.api_base}")
 
     if not results:
         answer = generate_answer(args.question, results)
-        print("\n资料不足: 没有候选片段通过来源和正文检查，未调用生成模型。")
+        print("\n资料不足: 没有候选片段通过来源、正文和相关度检查，未调用生成模型。")
         print(f"回答: {answer.answer}")
         return 0
 

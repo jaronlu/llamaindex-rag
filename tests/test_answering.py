@@ -18,6 +18,7 @@ from src.rag.answering.generate import (
     create_llm,
     generate_answer,
     parse_citations,
+    select_relevant_evidence,
 )
 from src.rag.cli.answering import main
 from src.rag.config.answering import DEFAULT_ANSWER_API_KEY_ENV
@@ -38,10 +39,12 @@ def make_result(
     text: str,
     pages: tuple[int, ...] = (291, 292),
     provenance_complete: bool = True,
+    score: float = 0.9,
+    rerank_score: float | None = None,
 ) -> RetrievalResult:
     return RetrievalResult(
         rank=rank,
-        score=0.9,
+        score=score,
         node_id=f"node-{rank}",
         text=text,
         file_name="HowToLiveBetter.pdf",
@@ -50,6 +53,7 @@ def make_result(
         source_exists=True,
         provenance_complete=provenance_complete,
         provenance_warning=None if provenance_complete else "来源文件内容已变化",
+        rerank_score=rerank_score,
     )
 
 
@@ -64,6 +68,33 @@ class FakeModel:
     def chat(self, messages: Sequence[ChatMessage]) -> ChatResponse:
         self.messages.append(list(messages))
         return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content=self.text), raw=self.raw)
+
+
+class EvidenceFilterTests(unittest.TestCase):
+    """相关度门槛只保留真正可能支持回答的片段。"""
+
+    def test_filters_reranked_results_and_renumbers(self):
+        results = [
+            make_result(1, "弱相关", rerank_score=0.1),
+            make_result(2, "强相关", rerank_score=0.8),
+        ]
+        selected = select_relevant_evidence(results)
+        self.assertEqual([item.text for item in selected], ["强相关"])
+        self.assertEqual(selected[0].rank, 1)
+
+    def test_filters_dense_results_by_similarity(self):
+        results = [
+            make_result(1, "弱相关", score=0.2),
+            make_result(2, "强相关", score=0.9),
+        ]
+        selected = select_relevant_evidence(results)
+        self.assertEqual([item.text for item in selected], ["强相关"])
+
+    def test_drops_results_without_score(self):
+        from dataclasses import replace
+
+        result = replace(make_result(1, "无分数"), score=None)
+        self.assertEqual(select_relevant_evidence([result]), [])
 
 
 class CitationParsingTests(unittest.TestCase):
@@ -255,6 +286,19 @@ class AnswerCommandTests(unittest.TestCase):
         self.assertIn("鉴权失败", error.getvalue())
         self.assertIn("已取得但未生成回答", output.getvalue())
         self.assertIn("加班费按三档支付。", output.getvalue())
+
+    def test_low_relevance_evidence_reports_insufficient_without_key(self):
+        result = make_result(1, "无关内容", score=0.1)
+        with patch("src.rag.cli.answering.retrieve_and_rerank", return_value=[result]), \
+             patch.dict(os.environ, {DEFAULT_ANSWER_API_KEY_ENV: ""}), \
+             contextlib.redirect_stdout(io.StringIO()) as output:
+            code = main(["index", "你好"])
+
+        self.assertEqual(code, 0)
+        text = output.getvalue()
+        self.assertIn("资料不足", text)
+        self.assertIn("相关度过滤", text)
+        self.assertIn("未调用生成模型", text)
 
     def test_empty_results_reports_insufficient_without_key(self):
         with patch("src.rag.cli.answering.retrieve_and_rerank", return_value=[]), \

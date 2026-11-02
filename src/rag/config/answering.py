@@ -14,3 +14,10 @@ DEFAULT_ANSWER_API_KEY_ENV = "ARK_WORK_FLOW_API_KEY"
 DEFAULT_ANSWER_TEMPERATURE = 0.1
 DEFAULT_ANSWER_MAX_TOKENS = 4096
 DEFAULT_ANSWER_TIMEOUT_SECONDS = 60.0
+
+# 相关性门槛：只按排名取前 K，会把“你好”这类问题也塞进 5 条无关片段，生成模型
+# 随后把它们总结成答案。分数来自 quickstart 索引的实测：文档内问题 dense ≥ 0.66、
+# rerank ≥ 0.53，问候和书外问题 dense ≤ 0.42、rerank ≤ 0.20。重排分与 dense 分的
+# 量纲不同，不能共用一个值；换模型或索引后必须重新校准。
+DEFAULT_MIN_DENSE_SCORE = 0.5
+DEFAULT_MIN_RERANK_SCORE = 0.3

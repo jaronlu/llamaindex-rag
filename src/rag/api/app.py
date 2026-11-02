@@ -29,11 +29,14 @@ from ..answering.generate import (
     generate_answer,
     iter_answer_deltas,
     resolve_api_key,
+    select_relevant_evidence,
 )
 from ..config.answering import (
     DEFAULT_ANSWER_MAX_TOKENS,
     DEFAULT_ANSWER_TEMPERATURE,
     DEFAULT_ANSWER_TIMEOUT_SECONDS,
+    DEFAULT_MIN_DENSE_SCORE,
+    DEFAULT_MIN_RERANK_SCORE,
 )
 from ..config.api import API_TOKEN_ENV, MAX_CANDIDATE_K, MAX_QUESTION_CHARS, MAX_TOP_K
 from ..config.indexing import ManifestKey
@@ -61,6 +64,8 @@ class ApiSettings:
     answer_model: str
     answer_api_base: str
     answer_api_key_env: str
+    min_rerank_score: float = DEFAULT_MIN_RERANK_SCORE
+    min_dense_score: float = DEFAULT_MIN_DENSE_SCORE
 
 
 class SearchRequest(BaseModel):
@@ -225,6 +230,14 @@ def _answer_events(settings: ApiSettings, request: SearchRequest) -> Iterator[st
         yield _sse("error", {"detail": exc.detail})
         return
 
+    # 只按排名取前 K 会把无关片段交给模型；先按相关度过滤，全部低于门槛时
+    # 下面会走“资料不足”分支，不调用生成模型。
+    results = select_relevant_evidence(
+        results,
+        min_rerank_score=settings.min_rerank_score,
+        min_dense_score=settings.min_dense_score,
+    )
+
     # 证据先于生成结果发出，客户端可以先渲染来源，再等待回答文本。
     yield _sse("evidence", {"items": _serialize_results(results)})
     if not results:
@@ -361,6 +374,11 @@ def create_app(settings: ApiSettings) -> FastAPI:
         if request.stream:
             return _stream_response(settings, request)
         results = _retrieve(settings, request)
+        results = select_relevant_evidence(
+            results,
+            min_rerank_score=settings.min_rerank_score,
+            min_dense_score=settings.min_dense_score,
+        )
         if not results:
             # 与命令行一致：没有可交付片段时直接返回资料不足，不要求配置密钥。
             return _serialize_answer(generate_answer(request.question, results))
