@@ -4,3 +4,7 @@ data/
 tmp/
 .mimosa/
 .v2c/
+*.egg-info/
+dist/
+.superpowers/
+docs/superpowers/

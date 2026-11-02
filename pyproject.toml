@@ -1,6 +1,11 @@
 [project]
 name = "llamaindex-rag"
 version = "0.1.0"
+description = "基于 LlamaIndex 的可追溯 PDF 知识库与 RAG 学习项目"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "jaronlu" }]
 requires-python = ">=3.12"
 dependencies = [
     "llama-index-core>=0.14.25",
@@ -10,3 +15,6 @@ dependencies = [
     "pypdf>=6.21.3",
     "sentence-transformers>=5.0",
 ]
+
+[project.urls]
+Repository = "https://github.com/jaronlu/llamaindex-rag"

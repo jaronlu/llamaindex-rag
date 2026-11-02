@@ -179,3 +179,13 @@ uv run python -m src.rag.cli.answering data/index-from14-384 \
 命令先用 dense top 20 召回并重排取前 5 条作为证据；加 `--dense-only` 可直接使用 dense 结果。输出包括回答、引用编号检查，以及每条证据的文件名、来源路径、物理页码、片段 ID 和完整原文。证据会被标为“已被引用”或“未被引用”；回答引用了不存在的编号，或完全没有引用时，命令会明确提示。检索不到可交付片段时，命令直接给出资料不足提示，不调用模型，也不需要密钥。
 
 `--api-key-env` 可改用其他环境变量名。模型返回空回答、输出达到上限（`finish_reason=length`）、鉴权失败或网络错误都会作为失败报告，不会退回本地模型、展示半截回答或编造回答。回答是否忠于原文、是否遗漏限定条件，仍要按引用打开 PDF 人工核对；实验协议和限制见[回答实验记录](docs/experiments/answering.md)。
+
+## 许可
+
+本仓库代码使用 [MIT 许可证](LICENSE)。
+
+示例文档 `docs/pdf/HowToLiveBetter.pdf` 不适用 MIT：它来自《高性价比人生指南》
+（https://github.com/eternity4719/HowToLiveBetter），作者 eternity4719，
+正文以 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) 授权。
+仓库中的 PDF 构建于 2026-10-09（Typst 0.15.1），本项目未改动正文内容；
+不同时间构建的版本页码可能不同，引用原文时请以上游仓库为准。
