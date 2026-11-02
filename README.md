@@ -30,7 +30,7 @@ uv run python -c 'from llama_index.core import SimpleDirectoryReader; from llama
 
 ## 运行日志
 
-四个阶段命令行入口会将阶段开始、结束、耗时、参数、数量和失败信息写入 `data/logs/rag.log`。每次命令有独立的 `run_id`，可用它串联加载、切片、索引与检索事件及异常堆栈的每一行；非零退出码以 `WARNING command.finished` 标记；索引日志还记录向量化数量和发布状态。终端继续显示供人工核对的完整正文和来源。日志默认不主动记录正文、切片或向量，但文件路径和第三方异常及堆栈可能包含敏感内容，请按本地资料的保密要求管理日志。
+五个阶段命令行入口会将阶段开始、结束、耗时、参数、数量和失败信息写入 `data/logs/rag.log`。每次命令有独立的 `run_id`，可用它串联加载、切片、索引、检索与回答事件及异常堆栈的每一行；非零退出码以 `WARNING command.finished` 标记；索引日志还记录向量化数量和发布状态。终端继续显示供人工核对的完整正文和来源。日志默认不主动记录正文、切片或向量，但文件路径和第三方异常及堆栈可能包含敏感内容，请按本地资料的保密要求管理日志。
 
 可通过环境变量配置日志文件和级别（`DEBUG`、`INFO`、`WARNING`、`ERROR`）：
 
@@ -106,7 +106,7 @@ uv run --with mypy python -m mypy --check-untyped-defs src tests
 
 ## 检索
 
-检索使用已保存索引中的向量和 Node，不会重新解析 PDF。默认使用 `src/rag/config/common.py` 配置的 embedding 模型路径；它必须与构建索引时使用的快照一致。需要换模型目录时，可用 `--model-path` 或环境变量 `RAG_EMBEDDING_MODEL_PATH` 覆盖，并确保与索引配置相同。程序会比较模型名、revision、快照文件摘要、向量维度和切片配置，配置不兼容会拒绝查询。
+检索使用已保存索引中的向量和 Node，不会重新解析 PDF。默认使用 `src/rag/config/common.py` 配置的 embedding 模型路径；它必须与构建索引时使用的快照一致。需要换模型目录时，可用 `--model-path` 或环境变量 `RAG_EMBEDDING_MODEL_PATH` 覆盖，并确保与索引配置相同。程序会比较模型名、revision 和快照内容摘要，不一致会拒绝查询；向量维度和切片参数由 manifest 记录并随模型身份一同固定，不单独重新推导。
 
 ```bash
 uv run python -m src.rag.cli.retrieval search data/index-pages-4-5 \

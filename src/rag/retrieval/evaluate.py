@@ -121,12 +121,3 @@ def evaluate_questions(
             )
         )
     return evaluations
-
-
-def format_pages(pages: Sequence[int]) -> str:
-    """把页码元组格式化成 ``291`` 或 ``291–292``，用于命令行展示。"""
-    if not pages:
-        return "无"
-    if len(pages) == 1:
-        return str(pages[0])
-    return f"{pages[0]}–{pages[-1]}"

@@ -63,6 +63,16 @@ class IndexConfigurationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "不兼容"):
             check_compatibility({"model": "a", "version": "1", "dimension": 8, "chunk_size": 128, "chunk_overlap": 32}, {"model": "a", "version": "2", "dimension": 8, "chunk_size": 128, "chunk_overlap": 32})
 
+    def test_compares_only_explicitly_expected_keys(self):
+        from src.rag.indexing.store import check_compatibility
+        saved = {"model": "a", "version": "1", "model_sha256": "abc", "dimension": 8, "chunk_size": 128, "chunk_overlap": 32}
+        # 查询阶段只能独立核对模型身份；未提供的字段不应被拿来和 manifest 自身比较。
+        check_compatibility(saved, {"model": "a", "version": "1"})
+        with self.assertRaisesRegex(ValueError, "dimension"):
+            check_compatibility(saved, {"dimension": 16})
+        with self.assertRaisesRegex(ValueError, "不兼容"):
+            check_compatibility({"model": "a"}, {"model": "a"})
+
 class IndexCliTests(unittest.TestCase):
     def test_preflight_failure_reports_unknown_total_and_unpublished(self):
         import contextlib

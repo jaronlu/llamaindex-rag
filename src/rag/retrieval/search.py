@@ -26,6 +26,15 @@ from ..indexing.model import snapshot_identity
 from ..indexing.store import check_compatibility
 
 
+def format_pages(pages: Sequence[int]) -> str:
+    """把物理页码格式化成 ``291``、``291–292``；没有页码时返回“无”。"""
+    if not pages:
+        return "无"
+    if len(pages) == 1:
+        return str(pages[0])
+    return f"{pages[0]}–{pages[-1]}"
+
+
 @dataclass(frozen=True, slots=True)
 class RetrievalResult:
     """一次检索命中的完整片段及其来源状态。
@@ -51,9 +60,7 @@ class RetrievalResult:
     @property
     def page_label(self) -> str:
         """返回适合命令行展示的单页或跨页标签。"""
-        if len(self.page_numbers) == 1:
-            return str(self.page_numbers[0])
-        return f"{self.page_numbers[0]}–{self.page_numbers[-1]}"
+        return format_pages(self.page_numbers)
 
 
 def _read_manifest(index_path: Path) -> dict[str, Any]:
@@ -171,7 +178,8 @@ def retrieve(
         缺失的节点会保留正文并将 ``provenance_complete`` 设为 ``False``。
 
     异常：
-        ``ValueError`` 表示索引、模型、查询配置或输入参数不可用。
+        ``ValueError`` 表示索引、模型身份、查询配置或输入参数不可用；
+        模型目录不存在时由 ``Path.resolve(strict=True)`` 抛出 ``FileNotFoundError``。
     """
     if not isinstance(question, str) or not question.strip():
         raise ValueError("问题不能为空")
@@ -182,13 +190,10 @@ def retrieve(
     manifest = _read_manifest(index_path)
     model_path = model_path.expanduser().resolve(strict=True)
     identity = snapshot_identity(model_path)
-    expected = {
-        **identity,
-        ManifestKey.DIMENSION: manifest.get(ManifestKey.DIMENSION),
-        ManifestKey.CHUNK_SIZE: manifest.get(ManifestKey.CHUNK_SIZE),
-        ManifestKey.CHUNK_OVERLAP: manifest.get(ManifestKey.CHUNK_OVERLAP),
-    }
-    check_compatibility(manifest, expected)
+    # 查询阶段能独立核对的只有模型身份（模型名、revision、快照内容摘要）。
+    # 维度和切片参数只能从 manifest 自身读出，再拿它与 manifest 比较是恒真检查；
+    # 模型身份一致时，这些派生配置必然来自同一次构建。
+    check_compatibility(manifest, identity)
 
     # 与索引构建阶段使用同一设备和本地快照策略；查询文本不会发送到外部服务。
     from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]

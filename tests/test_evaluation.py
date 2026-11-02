@@ -8,10 +8,10 @@ from unittest.mock import patch
 from src.rag.retrieval.evaluate import (
     EvaluationQuestion,
     answer_rank,
-    format_pages,
+    evaluate_questions,
     load_questions,
 )
-from src.rag.retrieval.search import RetrievalResult
+from src.rag.retrieval.search import RetrievalResult, format_pages
 
 
 def setUpModule():
@@ -81,6 +81,42 @@ class AnswerRankTests(unittest.TestCase):
         self.assertEqual(format_pages(()), "无")
         self.assertEqual(format_pages((291,)), "291")
         self.assertEqual(format_pages((291, 292)), "291–292")
+
+
+class EvaluateQuestionsTests(unittest.TestCase):
+    def test_records_dense_and_rerank_ranks_through_production_functions(self):
+        question = EvaluationQuestion("q", "问题？", (2,))
+        candidates = [result(1, [1]), result(2, [2]), result(3, [3])]
+        reranked = [result(1, [3]), result(2, [2]), result(3, [1])]
+
+        with patch("src.rag.retrieval.evaluate.retrieve", return_value=candidates) as retrieve_mock, \
+             patch("src.rag.retrieval.evaluate.rerank", return_value=reranked) as rerank_mock:
+            evaluations = evaluate_questions(
+                Path("/index"), Path("/model"), Path("/reranker"), [question],
+                candidate_k=10, top_k=5,
+            )
+
+        retrieve_mock.assert_called_once_with(Path("/index"), Path("/model"), "问题？", top_k=10)
+        rerank_mock.assert_called_once_with("问题？", candidates, Path("/reranker"), top_k=5)
+        evaluation = evaluations[0]
+        self.assertEqual(evaluation.dense_rank, 2)
+        self.assertEqual(evaluation.rerank_rank, 2)
+        self.assertTrue(evaluation.in_candidates)
+        self.assertEqual(evaluation.dense_pages, ((1,), (2,), (3,)))
+
+    def test_distinguishes_not_recalled_from_not_reranked(self):
+        question = EvaluationQuestion("q", "问题？", (9,))
+        candidates = [result(1, [1]), result(2, [2])]
+
+        with patch("src.rag.retrieval.evaluate.retrieve", return_value=candidates), \
+             patch("src.rag.retrieval.evaluate.rerank", return_value=candidates[:1]):
+            evaluation = evaluate_questions(
+                Path("/index"), Path("/model"), Path("/reranker"), [question], top_k=1,
+            )[0]
+
+        self.assertFalse(evaluation.in_candidates)
+        self.assertIsNone(evaluation.dense_rank)
+        self.assertIsNone(evaluation.rerank_rank)
 
 
 if __name__ == "__main__":

@@ -15,8 +15,8 @@ from .logging import logged_command
 
 from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
 from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
-from ..retrieval.evaluate import evaluate_questions, format_pages, load_questions
-from ..retrieval.search import retrieve, retrieve_and_rerank
+from ..retrieval.evaluate import evaluate_questions, load_questions
+from ..retrieval.search import format_pages, retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)

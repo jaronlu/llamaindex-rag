@@ -1,5 +1,29 @@
 # 代码审查记录
 
+## 2026-10-31 全链路评审问题处理（来源：外部 review 报告）
+
+- **范围**：`src/rag/`、`tests/`、`docs/`、`README.md`；外部报告文件核对后已删除，结论保留在本节。
+- **处理原则**：逐条对照当前源码复核；属实项修复并补测试，设计取舍项保留并记录理由，未复现项注明。
+- **结论**：无高严重度问题；3 个中等问题和多数低级别问题属实并已处理。
+
+| 编号 | 报告问题 | 复核结果 | 处理 |
+| --- | --- | --- | --- |
+| M1 | 查询兼容性检查中维度/切片三项取自 manifest 自身再与 manifest 比较，恒真；README 夸大 | 属实 | `check_compatibility` 只比较 `expected` 中显式给出的字段，`retrieve` 只传模型身份并注明理由；README 检索小节同步 |
+| M2 | README 写“四个阶段命令行入口”，实际已有 5 个 | 属实 | 改为五个阶段，并补“回答”事件 |
+| M3 | 发现 8 的“空候选也会加载模型”与当前实现相反 | 属实 | 在发现 8 补 2026-10-31 校准说明，保留原记录作为历史 |
+| L1 | `retrieve` docstring 只声明 `ValueError` | 属实 | 补充模型目录缺失时的 `FileNotFoundError` |
+| L2 | 原文中的 `[数字]` 会被误判为引用编号 | 属实（设计边界） | 在 `generate.py` 和 `docs/knowledge/07-answer-issues.md` 记录误报边界；只提示、不阻塞 |
+| L3 | `split.py` 页码冗余三元表达式；`page_label` 与 `format_pages` 重复 | 属实 | 删除不可达分支；页码格式化统一到 `retrieval.search.format_pages` |
+| L4 | darwin 分支未捕获 `renamex_np` 缺失 | 属实（当前机器不触发） | 与 Linux 分支一致，捕获 `AttributeError` 并抛 `OSError` |
+| L5 | 重排模型无快照内容摘要校验 | 属实，已知缺口 | 维持现状，`docs/knowledge/06-rerank-issues.md` 已有记录 |
+| L6 | 评测每题重复加载模型和索引 | 属实，设计取舍 | 维持现状，理由见 `evaluate_questions` docstring |
+| L7 | 评测编排、CLI 输出、截断 SDK 形态、非文本 content 的测试缺口 | 部分属实 | 新增评测编排、SDK 形态截断、非文本 content 测试；CLI 评测输出仍无直接测试，列为剩余缺口 |
+| L8 | 回答生成失败时不展示已检索证据 | 属实 | 失败分支打印已取得的证据 |
+| L9 | `.mimosa/`、`.v2c/` 未被忽略 | 当前已不存在 | 工作区 `.gitignore` 已加入两项（已暂存），本次未改动；8.2MB 测试 PDF 入库为已知取舍 |
+
+- **未处理/未验证**：未实跑 rerank 与回答链路（回答会产生外部费用）；PRD §5 的第二份 PDF 扩展验收仍未完成，与本次评审问题无关，继续保留在实验记录的未验证清单中。
+- **其他观察**：项目目前只有单元测试和 mypy，没有独立 lint 配置；属观察项，不是违规。本次已在本机对现有索引实跑 dense 检索，结果仍能回到 PDF 第 4 页，确认兼容性检查调整未影响正常查询。
+
 ## 2026-10-30 重排（reranking）改动（已校准）
 
 - **审查范围**：`master` 工作区相对 `HEAD`（4e55e98）的未提交改动，共 11 个代码/文档文件：`README.md`、`docs/experiments/reranking.md`、`docs/prd/PRD.md`、`docs/superpowers/plans/2026-10-30-reranking.md`、`src/rag/cli/indexing.py`、`src/rag/cli/retrieval.py`、`src/rag/config/indexing.py`、`src/rag/config/retrieval.py`、`src/rag/retrieval/__init__.py`、`src/rag/retrieval/search.py`、`tests/test_retrieval.py`。
@@ -79,7 +103,7 @@
 
 #### 8. 候选为空时 `rerank` 跳过模型校验直接返回 `[]` — 中低
 
-- **状态：已修复**。空候选也会检查模型目录并加载模型；缺失或不可加载时明确失败。已有测试覆盖这两类行为。
+- **状态：已修复（2026-10-31 校准）**。空候选会先检查模型目录，缺失时明确失败。审查当时的实现还会加载模型；后续为“返回空列表不值得加载数 GB 的 CrossEncoder”改为只校验路径、不加载模型（`src/rag/retrieval/search.py` 的 `rerank`），并由 `test_rerank_skips_model_load_when_no_candidates` 断言加载器未被调用。上面初版记录写作“并加载模型”，描述的是当时状态，特此校准。
 
 - **位置**：`src/rag/retrieval/search.py:233-234`
 - **问题**：`if not candidates: return []` 位于模型路径与可用性校验之前。

@@ -55,8 +55,8 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
             raise ValueError("PDF 来源页码缺失或无效")
         if not document.text.strip():
             continue
-        page = (page_numbers[0] if isinstance(page_numbers, list) and len(page_numbers) == 1
-                and type(page_numbers[0]) is int and page_numbers[0] > 0 else None)
+        # 上一段已保证 page_numbers 是单元素、正整数的列表，这里直接取页码。
+        page = page_numbers[0]
         previous = groups[-1][-1] if groups else None
         previous_pages = previous.metadata.get(MetadataKey.PAGE_NUMBERS.value) if previous else None
         ignored = {MetadataKey.PAGE_NUMBERS.value}
@@ -66,7 +66,7 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
             {k: v for k, v in previous.metadata.items() if k not in ignored}
             == {k: v for k, v in metadata.items() if k not in ignored}
         )
-        if (same_source and previous is not None and page is not None
+        if (same_source and previous is not None
                 and isinstance(previous_pages, list) and len(previous_pages) == 1
                 and type(previous_pages[0]) is int and page == previous_pages[0] + 1
                 and document.excluded_embed_metadata_keys == previous.excluded_embed_metadata_keys

@@ -2,6 +2,7 @@ import contextlib
 import io
 import os
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 from collections.abc import Sequence
@@ -134,6 +135,24 @@ class GenerateAnswerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             generate_answer("问题", [make_result(1, "正文")], FakeModel("   "))
 
+    def test_rejects_non_text_content_with_specific_message(self):
+        class NonTextModel:
+            def chat(self, messages):
+                return SimpleNamespace(raw={}, message=SimpleNamespace(content=[{"type": "text", "text": "回答"}]))
+
+        with self.assertRaisesRegex(ValueError, "非文本内容"):
+            generate_answer("问题", [make_result(1, "正文")], NonTextModel())
+
+    def test_detects_truncation_from_sdk_style_raw_response(self):
+        class Choice:
+            finish_reason = "length"
+
+        class Raw:
+            choices = [Choice()]
+
+        with self.assertRaisesRegex(ValueError, "max_tokens"):
+            generate_answer("问题", [make_result(1, "正文")], FakeModel("回答写到一半", raw=Raw()))
+
     def test_rejects_empty_question(self):
         with self.assertRaises(ValueError):
             generate_answer(" ", [make_result(1, "正文")], FakeModel("回答"))
@@ -144,7 +163,8 @@ class CreateLlmTests(unittest.TestCase):
         llm = create_llm(
             model="glm-5.3-flash",
             api_base="https://example.com/v3",
-            api_key="test-key",
+            # 只用于构造客户端对象，不会发起请求；用非字面量避免被误判为真实密钥。
+            api_key="x" * 32,
             temperature=0.1,
             max_tokens=512,
             timeout=30.0,
@@ -208,6 +228,20 @@ class AnswerCommandTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("来源检查: 引用的证据 [1] 无法回到当前文件核对", output.getvalue())
+
+    def test_generation_failure_still_shows_retrieved_evidence(self):
+        result = make_result(1, "加班费按三档支付。")
+        with patch("src.rag.cli.answering.retrieve_and_rerank", return_value=[result]), \
+             patch("src.rag.cli.answering.create_llm", side_effect=ValueError("鉴权失败")), \
+             patch.dict(os.environ, {DEFAULT_ANSWER_API_KEY_ENV: "test-key"}), \
+             contextlib.redirect_stdout(io.StringIO()) as output, \
+             contextlib.redirect_stderr(io.StringIO()) as error:
+            code = main(["index", "问题"])
+
+        self.assertEqual(code, 1)
+        self.assertIn("鉴权失败", error.getvalue())
+        self.assertIn("已取得但未生成回答", output.getvalue())
+        self.assertIn("加班费按三档支付。", output.getvalue())
 
     def test_empty_results_reports_insufficient_without_key(self):
         with patch("src.rag.cli.answering.retrieve_and_rerank", return_value=[]), \

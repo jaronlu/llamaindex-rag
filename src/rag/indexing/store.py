@@ -62,7 +62,12 @@ def publish_index(staging: Path, destination: Path) -> None:
     # 这个系统调用会在同一个操作中完成“目标不存在”检查和重命名，避免并发覆盖。
     libc = ctypes.CDLL(None, use_errno=True)
     if sys.platform == "darwin":
-        rename = libc.renamex_np
+        # 老于 10.12 的 macOS 没有 renamex_np；与 Linux 分支一样明确报不支持，
+        # 避免以 AttributeError 的形式泄漏到调用方。
+        try:
+            rename = libc.renamex_np
+        except AttributeError as exc:
+            raise OSError("系统不支持安全的原子索引发布") from exc
         rename.argtypes = [ctypes.c_char_p, ctypes.c_char_p, ctypes.c_uint]
         result = rename(os.fsencode(staging), os.fsencode(destination), DARWIN_RENAME_EXCL)
     elif sys.platform.startswith("linux"):
@@ -189,12 +194,17 @@ def read_node(location: Path, node_id: str) -> BaseNode:
 
 
 def check_compatibility(saved: dict[str, Any], expected: dict[str, Any]) -> None:
-    """检查已保存索引能否与当前查询配置一起使用。
+    """检查已保存索引能否与当前配置一起使用。
 
-    LlamaIndex 可以打开一个目录，但它不知道这个目录是不是由同一个模型和切片参数
-    生成的。模型、模型文件版本、向量维度或切片参数不一致时，查询结果可能没有意义，
-    因此由项目代码主动拒绝。函数没有返回值；没有异常就表示检查通过。
+    ``saved`` 是索引 manifest，必须包含 ``INDEX_COMPATIBILITY_KEYS`` 的全部字段；
+    ``expected`` 中出现的字段才参与比较。查询阶段能独立得知的只有模型身份，向量
+    维度和切片参数只能从 manifest 自身读取，传入 ``expected`` 会变成与自己比较的
+    恒真检查，因此调用方只应传模型名、revision 和快照内容摘要。这些身份字段一致
+    时，派生配置也来自同一次构建。函数没有返回值；没有异常就表示检查通过。
     """
-    mismatches = [key for key in INDEX_COMPATIBILITY_KEYS if key not in saved or key not in expected or saved[key] != expected[key]]
+    mismatches = [
+        key for key in INDEX_COMPATIBILITY_KEYS
+        if key not in saved or (key in expected and saved[key] != expected[key])
+    ]
     if mismatches:
         raise ValueError("索引配置不兼容: " + ", ".join(mismatches) + "；请重建或使用独立索引")

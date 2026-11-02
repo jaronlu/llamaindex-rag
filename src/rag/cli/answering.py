@@ -11,6 +11,7 @@ import argparse
 import logging
 import os
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 from .logging import logged_command
@@ -26,7 +27,7 @@ from ..config.answering import (
 )
 from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
 from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
-from ..retrieval.search import retrieve, retrieve_and_rerank
+from ..retrieval.search import RetrievalResult, retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)
@@ -40,10 +41,12 @@ def _resolve_api_key(env_var: str) -> str:
     return key
 
 
-def _print_evidence(answer: Answer) -> None:
-    """打印每条证据的完整正文和来源状态，并标出是否被回答引用。"""
-    cited = set(answer.citations) - set(answer.invalid_citations)
-    for number, result in enumerate(answer.evidence, start=1):
+def _print_evidence(evidence: Sequence[RetrievalResult], cited: set[int]) -> None:
+    """打印每条证据的完整正文和来源状态，并标出是否被回答引用。
+
+    生成失败时也会用空引用集合调用，让已经检索到的片段仍可人工排查。
+    """
+    for number, result in enumerate(evidence, start=1):
         marker = "已被引用" if number in cited else "未被引用"
         print(f"\n--- 证据 {number}（{marker}）---")
         print(f"文件名: {result.file_name}")
@@ -143,11 +146,15 @@ def main(argv: list[str] | None = None) -> int:
     except Exception as exc:
         logger.exception("answering.generation_failed model=%s api_base=%s", args.llm_model, args.api_base)
         print(f"生成回答失败: {exc}", file=sys.stderr)
+        # 检索阶段已经完成；把片段打印出来，便于判断失败前证据是否已经取到、
+        # 内容是否足以回答，而不是让用户只能重跑一次检索。
+        print("\n检索已完成，以下证据已取得但未生成回答，可供排查:")
+        _print_evidence(results, set())
         return 1
 
     print(f"\n回答:\n{answer.answer}")
     _print_citation_check(answer)
-    _print_evidence(answer)
+    _print_evidence(answer.evidence, set(answer.citations) - set(answer.invalid_citations))
     return 0
 
 

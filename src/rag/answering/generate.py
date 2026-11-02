@@ -21,6 +21,9 @@ if TYPE_CHECKING:
     from llama_index.llms.openai_like import OpenAILike  # type: ignore[import-untyped]
 
 
+# 只认 ASCII 方括号加数字。PDF 原文里也可能出现 `[1]` 这类编号（例如法条编号），
+# 被模型照抄时会误判为引用并触发“不存在的证据编号”提示；目前只提示、不阻塞，
+# 这一误报边界记录在 docs/knowledge/07-answer-issues.md。
 CITATION_PATTERN = re.compile(r"\[(\d+)\]")
 
 INSUFFICIENT_EVIDENCE_ANSWER = "未在文档中检索到可交付的片段，无法基于资料回答。"
@@ -170,8 +173,12 @@ def generate_answer(
         # 所以直接报失败，不交付不完整答案。
         raise ValueError("生成模型输出达到 max_tokens 上限，回答不完整；请调大上限或减少证据数量")
     content = response.message.content
-    if not isinstance(content, str) or not content.strip():
+    if content is None or (isinstance(content, str) and not content.strip()):
         raise ValueError("生成模型返回了空回答")
+    # 部分 OpenAI 兼容服务会返回 content blocks 等非字符串结构；直接报“空回答”
+    # 会掩盖真实原因，这里单独给出可定位的错误。
+    if not isinstance(content, str):
+        raise ValueError(f"生成模型返回了非文本内容（{type(content).__name__}），当前仅支持纯文本回答")
     citations = parse_citations(content)
     invalid = tuple(number for number in citations if number < 1 or number > len(evidence))
     return Answer(
