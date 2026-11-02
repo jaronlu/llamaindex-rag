@@ -18,13 +18,14 @@ uv run python -m src.rag.cli.retrieval search data/quickstart-index \
 
 ## 从哪里开始读代码
 
-目前已实现到回答阶段：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索 → 可选重排 → 基于片段的回答`。检索分数和重排分数都不能单独证明候选相关或答案正确，生成模型也不保证回答忠实于原文，仍需人工核对。
+目前已实现到回答阶段和局域网接口：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索 → 可选重排 → 基于片段的回答 → HTTP 接口`。检索分数和重排分数都不能单独证明候选相关或答案正确，生成模型也不保证回答忠实于原文，仍需人工核对。
 
 1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
 2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
 3. 接着看 [索引命令](src/rag/cli/indexing.py) 和 [索引存储](src/rag/indexing/store.py)。嵌入模型将每个片段的正文转换成一组数字（向量），`VectorStoreIndex` 保存向量和节点；`manifest.json` 记录构建配置与文档版本。之后可用节点 ID 从已保存的文档库找回原文和来源。
 4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；默认由本地 CrossEncoder 对 dense 候选重新排序，传入 `--dense-only` 可运行 dense 基线。结果继续使用索引中保存的完整正文与来源元数据。
-5. 最后看 [回答命令](src/rag/cli/answering.py) 和 [回答逻辑](src/rag/answering/generate.py)。检索片段按顺序编号后交给 OpenAI 兼容的生成模型，回答中的 `[n]` 会与证据逐条核对；密钥只从环境变量读取。
+5. 再看 [回答命令](src/rag/cli/answering.py) 和 [回答逻辑](src/rag/answering/generate.py)。检索片段按顺序编号后交给 OpenAI 兼容的生成模型，回答中的 `[n]` 会与证据逐条核对；密钥只从环境变量读取。
+6. 最后看 [服务入口](src/rag/cli/serve.py) 和 [局域网接口](src/rag/api/app.py)。HTTP 层只做参数校验、鉴权和序列化，检索和生成仍调用上面的模块；`stream` 参数决定返回一次性 JSON 还是 Server-Sent Events。
 
 `config/` 集中存放默认值和字段名；来源标识、清单读取、来源核验和页码展示等跨阶段规则集中在 [`provenance/`](src/rag/provenance/verify.py)；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
 
@@ -179,6 +180,120 @@ uv run python -m src.rag.cli.answering data/index-from14-384 \
 命令先用 dense top 20 召回并重排取前 5 条作为证据；加 `--dense-only` 可直接使用 dense 结果。输出包括回答、引用编号检查，以及每条证据的文件名、来源路径、物理页码、片段 ID 和完整原文。证据会被标为“已被引用”或“未被引用”；回答引用了不存在的编号，或完全没有引用时，命令会明确提示。检索不到可交付片段时，命令直接给出资料不足提示，不调用模型，也不需要密钥。
 
 `--api-key-env` 可改用其他环境变量名。模型返回空回答、输出达到上限（`finish_reason=length`）、鉴权失败或网络错误都会作为失败报告，不会退回本地模型、展示半截回答或编造回答。回答是否忠于原文、是否遗漏限定条件，仍要按引用打开 PDF 人工核对；实验协议和限制见[回答实验记录](docs/experiments/answering.md)。
+
+## 局域网接口
+
+接口让同一局域网内的 iPhone 或其他客户端调用本机的检索、重排和回答能力。客户端不含索引、嵌入模型和云端密钥；所有文档处理和外部模型调用仍在这台机器上完成。接口层不重新实现 RAG 规则，结果与命令行一致。
+
+### 启动服务
+
+```bash
+uv run python -m src.rag.cli.serve data/quickstart-index
+```
+
+默认只监听 `127.0.0.1:8000`。启动后会打印索引路径、片段数、监听地址、检索参数、生成模型和令牌状态；索引不完整或端口非法时直接退出，不会先监听再报错。
+
+需要手机访问时显式改为监听所有网卡：
+
+```bash
+uv run python -m src.rag.cli.serve data/quickstart-index --host 0.0.0.0
+```
+
+先用 `ipconfig getifaddr en0` 查本机局域网 IP，再用手机访问 `http://<IP>:8000/health` 确认连通。`0.0.0.0` 会让同网段其他设备也能访问，只在可信网络使用；不要暴露到公网。
+
+### 访问令牌
+
+默认不鉴权。设置 `RAG_API_TOKEN` 后，除 `GET /health` 外的请求都必须带 Bearer Token：
+
+```bash
+RAG_API_TOKEN='自己设定的令牌' uv run python -m src.rag.cli.serve data/quickstart-index --host 0.0.0.0
+```
+
+```bash
+curl -s http://127.0.0.1:8000/search \
+  -H 'Authorization: Bearer 自己设定的令牌' \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"年休假有多少天？","top_k":2}'
+```
+
+令牌缺失或错误返回 401。服务只在内存中比较环境变量里的令牌，不写入日志或响应。
+
+### 接口
+
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/health` | 返回索引路径、片段数、模型身份、索引是否可用和是否需要令牌；不需要鉴权 |
+| POST | `/search` | 返回带来源的候选片段，不调用生成模型 |
+| POST | `/ask` | 基于候选片段生成回答；`stream` 参数控制返回形式 |
+
+`/search` 和 `/ask` 使用相同的请求体：
+
+```json
+{
+  "question": "年休假有多少天？",
+  "top_k": 2,
+  "candidate_k": 20,
+  "dense_only": false,
+  "stream": false
+}
+```
+
+- `top_k`：交付片段数量，1–20，默认 5；`/ask` 中同时是证据数量。
+- `candidate_k`：重排前的 dense 候选数量，1–100，默认 20；`dense_only` 为真时忽略，且不得小于 `top_k`。
+- `dense_only`：跳过重排，只返回 dense 结果。
+- `stream`：只对 `/ask` 生效。`false`（默认）返回一次性 JSON；`true` 返回 Server-Sent Events。
+
+问题去掉首尾空白后不能为空，最多 2000 个字符；超限直接返回 400，不截断后继续。
+
+### 示例
+
+```bash
+curl -s http://127.0.0.1:8000/health
+
+curl -s -X POST http://127.0.0.1:8000/search \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"年休假有多少天？","top_k":2}' | python3 -m json.tool
+
+curl -s -X POST http://127.0.0.1:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"年休假有多少天？","top_k":2}' | python3 -m json.tool
+```
+
+检索和回答都复用已保存的索引；问题不会被重新解析成文档，也不会写入服务端日志（只记录问题长度和片段数量）。`/ask` 会把问题和证据发送到配置的生成服务并产生费用，密钥只从环境变量读取。第一次请求需要加载 embedding 和重排模型，通常要多等几秒。
+
+### 流式回答
+
+生成阶段可能持续十几秒，加上 `"stream": true` 可以逐段拿到文本。响应是 Server-Sent Events，`curl` 必须加 `-N` 才能看到增量：
+
+```bash
+curl -sN -X POST http://127.0.0.1:8000/ask \
+  -H 'Content-Type: application/json' \
+  -d '{"question":"年休假有多少天？","top_k":2,"stream":true}'
+```
+
+事件顺序：
+
+| 事件 | 内容 |
+| --- | --- |
+| `status` | `{"stage":"retrieving"}` 或 `{"stage":"generating"}`，表示当前阶段 |
+| `evidence` | `{"items":[...]}`，检索完成后立刻下发证据，客户端可先展示来源 |
+| `delta` | `{"text":"..."}`，生成文本增量，只含最终回答，不含模型推理内容 |
+| `done` | 完整回答、`citations`、`invalid_citations` 和证据，字段与非流式响应一致 |
+| `error` | `{"detail":"..."}`，流开始后的检索或生成失败 |
+
+流一旦开始，HTTP 状态码已经发出，后续失败只能通过 `error` 事件报告；鉴权、参数和索引检查在开始发送前完成，仍是普通 401/400/404。回答被截断（`finish_reason=length`）或为空时按失败处理，发 `error` 事件，不会把半截文本当成完整回答。
+
+### 错误码
+
+| 状态码 | 场景 |
+| --- | --- |
+| 400 | 问题为空或超长、`top_k`/`candidate_k` 越界、`top_k` 大于 `candidate_k`、字段类型错误 |
+| 401 | 设置了令牌但请求缺失或携带错误 |
+| 404 | 索引目录不存在、缺少 `manifest.json` 或索引未完成 |
+| 502 | 生成模型调用失败，例如网络错误、鉴权失败或返回空回答 |
+| 503 | 索引与模型不兼容、模型目录不存在、生成服务未配置密钥 |
+
+错误响应是 `{"detail":"中文说明"}`，不会返回密钥、堆栈或无关的本机路径。
 
 ## 许可
 

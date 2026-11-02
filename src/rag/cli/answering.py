@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 import sys
 from collections.abc import Sequence
 from pathlib import Path
@@ -17,7 +16,7 @@ from pathlib import Path
 from .arguments import add_retrieval_arguments
 from .logging import logged_command
 
-from ..answering.generate import Answer, create_llm, generate_answer
+from ..answering.generate import Answer, create_llm, generate_answer, resolve_api_key
 from ..config.answering import (
     DEFAULT_ANSWER_API_BASE,
     DEFAULT_ANSWER_API_KEY_ENV,
@@ -31,14 +30,6 @@ from ..retrieval.search import RetrievalResult, retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)
-
-
-def _resolve_api_key(env_var: str) -> str:
-    """从环境变量读取密钥；缺失时只说明变量名，不回显任何取值。"""
-    key = os.environ.get(env_var, "").strip()
-    if not key:
-        raise ValueError(f"未设置环境变量 {env_var}；密钥只从环境变量读取，不写入命令行、配置或日志")
-    return key
 
 
 def _print_evidence(evidence: Sequence[RetrievalResult], cited: set[int]) -> None:
@@ -130,7 +121,7 @@ def main(argv: list[str] | None = None) -> int:
 
     print(f"外部调用说明: 本次会把问题和 {len(results)} 条片段发送到上述地址；不会发送 PDF 文件、索引或其他文档。")
     try:
-        api_key = _resolve_api_key(args.api_key_env)
+        api_key = resolve_api_key(args.api_key_env)
         llm = create_llm(
             model=args.llm_model,
             api_base=args.api_base,

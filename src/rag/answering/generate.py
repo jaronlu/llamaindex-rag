@@ -8,8 +8,9 @@
 
 from __future__ import annotations
 
+import os
 import re
-from collections.abc import Sequence
+from collections.abc import Iterator, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Protocol
 
@@ -42,6 +43,15 @@ class ChatModel(Protocol):
     def chat(self, messages: Sequence[ChatMessage]) -> ChatResponse: ...
 
 
+class StreamingChatModel(ChatModel, Protocol):
+    """在 ``ChatModel`` 基础上增加流式输出；仅流式接口需要这个能力。
+
+    分开定义是为了让只做整段生成的调用方和测试替身不必实现 ``stream_chat``。
+    """
+
+    def stream_chat(self, messages: Sequence[ChatMessage]) -> Iterator[ChatResponse]: ...
+
+
 @dataclass(frozen=True, slots=True)
 class Answer:
     """一次基于来源的回答及其引用检查结果。
@@ -58,6 +68,18 @@ class Answer:
     citations: tuple[int, ...]
     invalid_citations: tuple[int, ...]
     llm_called: bool
+
+
+def resolve_api_key(env_var: str) -> str:
+    """从环境变量读取密钥；缺失时只说明变量名，不回显任何取值。
+
+    命令行和局域网接口都要从环境变量取密钥，集中在这里可以保证两处的报错措辞
+    和“不打印密钥”的约定一致，也便于测试替换环境变量。
+    """
+    key = os.environ.get(env_var, "").strip()
+    if not key:
+        raise ValueError(f"未设置环境变量 {env_var}；密钥只从环境变量读取，不写入命令行、配置或日志")
+    return key
 
 
 def create_llm(
@@ -141,6 +163,84 @@ def parse_citations(text: str) -> tuple[int, ...]:
     return tuple(citations)
 
 
+def _answer_from_content(
+    question: str,
+    evidence: tuple[RetrievalResult, ...],
+    content: object,
+) -> Answer:
+    """根据完整回答文本构造结果，并完成引用编号检查。
+
+    流式和非流式回答都走这一处：引用解析、越界编号和空回答判定不能各写一份，
+    否则同一个模型输出在两种接口下会得到不同结论。
+    """
+    if content is None or (isinstance(content, str) and not content.strip()):
+        raise ValueError("生成模型返回了空回答")
+    # 部分 OpenAI 兼容服务会返回 content blocks 等非字符串结构；直接报“空回答”
+    # 会掩盖真实原因，这里单独给出可定位的错误。
+    if not isinstance(content, str):
+        raise ValueError(f"生成模型返回了非文本内容（{type(content).__name__}），当前仅支持纯文本回答")
+    citations = parse_citations(content)
+    invalid = tuple(number for number in citations if number < 1 or number > len(evidence))
+    return Answer(
+        question=question.strip(),
+        answer=content.strip(),
+        evidence=evidence,
+        citations=citations,
+        invalid_citations=invalid,
+        llm_called=True,
+    )
+
+
+def answer_from_text(
+    question: str,
+    results: Sequence[RetrievalResult],
+    content: str,
+) -> Answer:
+    """用已经收集到的流式文本构造与 ``generate_answer`` 一致的 ``Answer``。"""
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("问题不能为空")
+    evidence = tuple(results)
+    if not evidence:
+        raise ValueError("没有证据片段，不能构造回答结果")
+    return _answer_from_content(question, evidence, content)
+
+
+def iter_answer_deltas(
+    question: str,
+    results: Sequence[RetrievalResult],
+    llm: StreamingChatModel,
+) -> Iterator[str]:
+    """逐段产出生成文本，供流式接口立即转发给客户端。
+
+    只转发最终回答的增量，不包含模型的推理内容；调用方负责把文本拼接起来，
+    最后交给 ``answer_from_text`` 做引用检查。输出被截断或完全没有文本时在
+    生成器结束处抛 ``ValueError``，调用方必须把它当作失败，而不是接受半截回答。
+    """
+    if not isinstance(question, str) or not question.strip():
+        raise ValueError("问题不能为空")
+    evidence = tuple(results)
+    if not evidence:
+        raise ValueError("没有证据片段，不能请求生成模型")
+
+    truncated = False
+    emitted = False
+    for chunk in llm.stream_chat(build_messages(question, evidence)):
+        # 结束原因可能只在最后一个 chunk 上出现，因此每个 chunk 都要检查。
+        truncated = _response_truncated(chunk) or truncated
+        delta = chunk.delta
+        if not delta:
+            continue
+        emitted = True
+        yield delta
+
+    if truncated:
+        # 已经发出的半截文本不能被调用方当作完整回答；顺序上先检查截断再检查空文本，
+        # 让“输出达到上限”这个更具体的原因不被“空回答”掩盖。
+        raise ValueError("生成模型输出达到 max_tokens 上限，回答不完整；请调大上限或减少证据数量")
+    if not emitted:
+        raise ValueError("生成模型返回了空回答")
+
+
 def generate_answer(
     question: str,
     results: Sequence[RetrievalResult],
@@ -172,20 +272,4 @@ def generate_answer(
         # 截断的回答会停在句子中间，继续引用检查会让人误以为它只是“没引用全”，
         # 所以直接报失败，不交付不完整答案。
         raise ValueError("生成模型输出达到 max_tokens 上限，回答不完整；请调大上限或减少证据数量")
-    content = response.message.content
-    if content is None or (isinstance(content, str) and not content.strip()):
-        raise ValueError("生成模型返回了空回答")
-    # 部分 OpenAI 兼容服务会返回 content blocks 等非字符串结构；直接报“空回答”
-    # 会掩盖真实原因，这里单独给出可定位的错误。
-    if not isinstance(content, str):
-        raise ValueError(f"生成模型返回了非文本内容（{type(content).__name__}），当前仅支持纯文本回答")
-    citations = parse_citations(content)
-    invalid = tuple(number for number in citations if number < 1 or number > len(evidence))
-    return Answer(
-        question=question.strip(),
-        answer=content.strip(),
-        evidence=evidence,
-        citations=citations,
-        invalid_citations=invalid,
-        llm_called=True,
-    )
+    return _answer_from_content(question, evidence, response.message.content)
