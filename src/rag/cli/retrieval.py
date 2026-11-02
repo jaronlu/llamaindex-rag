@@ -11,12 +11,13 @@ import logging
 import sys
 from pathlib import Path
 
+from .arguments import add_retrieval_arguments
 from .logging import logged_command
 
-from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
-from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
+from ..config.retrieval import DEFAULT_RETRIEVAL_TOP_K
+from ..provenance import format_pages
 from ..retrieval.evaluate import evaluate_questions, load_questions
-from ..retrieval.search import format_pages, retrieve, retrieve_and_rerank
+from ..retrieval.search import retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)
@@ -80,18 +81,18 @@ def main(argv: list[str] | None = None) -> int:
     search = subparsers.add_parser("search", help="检索一个自然语言问题")
     search.add_argument("index", type=Path, help="索引目录")
     search.add_argument("question", help="自然语言问题")
-    search.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖默认的 Hugging Face embedding 模型快照目录")
-    search.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help=f"最多显示的候选数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）")
-    search.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
-    search.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help=f"重排前 dense 粗召回数量（默认 {DEFAULT_CANDIDATE_K}）")
-    search.add_argument("--dense-only", action="store_true", help="仅运行 dense 基线，不使用 CrossEncoder 重排")
+    add_retrieval_arguments(
+        search,
+        top_k_help=f"最多显示的候选数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）",
+        dense_only_help="仅运行 dense 基线，不使用 CrossEncoder 重排",
+    )
     evaluate = subparsers.add_parser("evaluate", help="用固定问题集统计答案页排名")
     evaluate.add_argument("index", type=Path, help="索引目录")
     evaluate.add_argument("questions", type=Path, help="问题集 JSON 路径，需包含人工标注的答案页")
-    evaluate.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖默认的 Hugging Face embedding 模型快照目录")
-    evaluate.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
-    evaluate.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help=f"重排前 dense 粗召回数量（默认 {DEFAULT_CANDIDATE_K}）")
-    evaluate.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help=f"计算名次时使用的交付数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）")
+    add_retrieval_arguments(
+        evaluate,
+        top_k_help=f"计算名次时使用的交付数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）",
+    )
     args = parser.parse_args(argv)
 
     if args.command == "evaluate":
@@ -143,10 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"文件名: {result.file_name}")
         print(f"来源路径: {result.source_path}")
         print(f"物理页码: {result.page_label}")
-        if result.provenance_complete:
-            print("来源状态: 可回到当前 PDF 核对")
-        else:
-            print(f"来源状态: 无法完成当前文件核对；{result.provenance_warning or '来源信息不完整'}")
+        print(f"来源状态: {result.source_status_label}")
         print("完整原文:")
         print(result.text)
     return 0

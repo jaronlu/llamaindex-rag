@@ -4,6 +4,7 @@ import io
 import json
 import tempfile
 import unittest
+from dataclasses import replace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -12,8 +13,8 @@ from llama_index.core.schema import TextNode
 
 from src.rag.indexing.model import snapshot_identity
 from src.rag.indexing.store import build_index
+from src.rag.provenance import source_status
 from src.rag.retrieval.search import RetrievalResult, retrieve, rerank, retrieve_and_rerank
-from src.rag.retrieval.search import _source_status
 
 
 class FakeLocalEmbedding(MockEmbedding):
@@ -67,6 +68,14 @@ class RetrievalCoreTests(unittest.TestCase):
             source_exists=True,
             provenance_complete=True,
         )
+
+    def test_source_status_label_matches_provenance_state(self):
+        verified = self.make_result(1, "正文", 0.9)
+        self.assertEqual(verified.source_status_label, "可回到当前 PDF 核对")
+        changed = replace(verified, provenance_complete=False, provenance_warning="来源文件内容已变化")
+        self.assertEqual(changed.source_status_label, "无法完成当前文件核对；来源文件内容已变化")
+        unknown = replace(verified, provenance_complete=False, provenance_warning=None)
+        self.assertEqual(unknown.source_status_label, "无法完成当前文件核对；来源信息不完整")
 
     def test_retrieve_returns_ranked_complete_source_traceable_results(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -132,12 +141,12 @@ class RetrievalCoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             index_path, model_path = make_index(Path(temp))
             with patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", FakeLocalEmbedding), patch(
-                "src.rag.retrieval.search._source_status", wraps=_source_status
-            ) as source_status:
+                "src.rag.retrieval.search.source_status", wraps=source_status
+            ) as status_mock:
                 results = retrieve(index_path, model_path, "question", top_k=2)
 
             self.assertEqual(len(results), 2)
-            self.assertEqual(source_status.call_count, 1)
+            self.assertEqual(status_mock.call_count, 1)
 
     def test_marks_changed_source_as_not_verifiable(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -344,7 +353,7 @@ class RetrievalCliTests(unittest.TestCase):
             code = main(["search", "/tmp/index", "问题内容", "--model-path", "/tmp/model", "--top-k", "3", "--dense-only"])
         self.assertEqual(code, 0)
         text = output.getvalue()
-        for expected in ("问题内容", "排名: 1", "0.875", "node-1", "source.pdf", "/docs/source.pdf", "4–5", "完整的候选原文", "相似度分数越高"):
+        for expected in ("问题内容", "排名: 1", "0.875", "node-1", "source.pdf", "/docs/source.pdf", "4–5", "来源状态: 可回到当前 PDF 核对", "完整的候选原文", "相似度分数越高"):
             self.assertIn(expected, text)
 
     def test_search_command_reports_no_results(self):

@@ -41,6 +41,9 @@ def chunk_documents(documents: Sequence[Document], chunk_size: int = DEFAULT_CHU
         metadata = document.metadata
         if "source_location" in metadata:
             raise ValueError("不再支持 source_location；PDF 来源请使用 page_numbers")
+        # 读取侧的 retrieval.search._valid_provenance 故意更宽松：索引中的 Node 可以
+        # 跨页，也可能来自其他版本，因此不要求单页和 source_id。这里保持写入侧最
+        # 严格的约束，二者不要合并，否则会放宽摄入保证或收紧查询兼容性。
         required = (MetadataKey.FILE_NAME, MetadataKey.SOURCE_PATH, MetadataKey.SOURCE_ID)
         # 每个来源字段都必须是非空字符串。这样可以尽早发现字段缺失、类型错误或
         # 空白占位符；路径和 source_id 是否真实有效则由写入方负责。

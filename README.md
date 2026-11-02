@@ -26,7 +26,7 @@ uv run python -m src.rag.cli.retrieval search data/quickstart-index \
 4. 再看 [检索命令](src/rag/cli/retrieval.py) 和 [检索逻辑](src/rag/retrieval/search.py)。检索先核对模型快照和索引配置，再让 LlamaIndex 按 Top-K 查询；默认由本地 CrossEncoder 对 dense 候选重新排序，传入 `--dense-only` 可运行 dense 基线。结果继续使用索引中保存的完整正文与来源元数据。
 5. 最后看 [回答命令](src/rag/cli/answering.py) 和 [回答逻辑](src/rag/answering/generate.py)。检索片段按顺序编号后交给 OpenAI 兼容的生成模型，回答中的 `[n]` 会与证据逐条核对；密钥只从环境变量读取。
 
-`config/` 集中存放默认值和字段名；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
+`config/` 集中存放默认值和字段名；来源标识、清单读取、来源核验和页码展示等跨阶段规则集中在 [`provenance/`](src/rag/provenance/verify.py)；`tests/` 展示各阶段的输入、边界和预期。命令行模块负责接收参数及展示结果，阶段目录负责实际处理。下面的命令可以边运行边对照这些文件阅读。
 
 ## 安装依赖
 

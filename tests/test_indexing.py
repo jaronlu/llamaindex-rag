@@ -127,6 +127,37 @@ class IndexCliTests(unittest.TestCase):
                 self.assertEqual(main(["read", str(location), node.node_id]), 0)
             self.assertIn("来源文件不存在", output.getvalue())
 
+    def test_read_degrades_to_warning_when_manifest_record_is_unusable(self):
+        import contextlib
+        import io
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            location = Path(temp) / "index"
+            source = Path(temp) / "source.pdf"
+            source.write_bytes(b"pdf")
+            node = TextNode(text="正文", metadata={"file_name": "source.pdf", "source_path": str(source), "source_id": "a", "page_numbers": [1]})
+            # 清单里记录的 documents 不是对象列表，旧实现在这里会抛 AttributeError。
+            build_index([node], MockEmbedding(embed_dim=8), location, {"documents": ["not-a-record"]})
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["read", str(location), node.node_id]), 0)
+            self.assertIn("缺少来源版本摘要", output.getvalue())
+
+    def test_read_reports_unreadable_source_instead_of_failing(self):
+        import contextlib
+        import io
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            location = Path(temp) / "index"
+            source = Path(temp) / "source.pdf"
+            source.write_bytes(b"pdf")
+            node = TextNode(text="正文", metadata={"file_name": "source.pdf", "source_path": str(source), "source_id": "a", "page_numbers": [1]})
+            build_index([node], MockEmbedding(embed_dim=8), location, {"documents": [{"path": str(source), "sha256": "abc"}]})
+            with patch("src.rag.provenance.verify.file_sha256", side_effect=OSError("denied")), \
+                 contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(["read", str(location), node.node_id]), 0)
+            self.assertIn("无法读取来源文件", output.getvalue())
+
+
 class ModelIdentityTests(unittest.TestCase):
     def test_same_named_snapshots_with_different_weights_are_incompatible(self):
         from src.rag.indexing.model import snapshot_identity

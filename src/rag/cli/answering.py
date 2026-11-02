@@ -14,6 +14,7 @@ import sys
 from collections.abc import Sequence
 from pathlib import Path
 
+from .arguments import add_retrieval_arguments
 from .logging import logged_command
 
 from ..answering.generate import Answer, create_llm, generate_answer
@@ -25,8 +26,7 @@ from ..config.answering import (
     DEFAULT_ANSWER_TEMPERATURE,
     DEFAULT_ANSWER_TIMEOUT_SECONDS,
 )
-from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_RERANK_MODEL_PATH
-from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
+from ..config.retrieval import DEFAULT_RETRIEVAL_TOP_K
 from ..retrieval.search import RetrievalResult, retrieve, retrieve_and_rerank
 
 
@@ -53,10 +53,7 @@ def _print_evidence(evidence: Sequence[RetrievalResult], cited: set[int]) -> Non
         print(f"来源路径: {result.source_path}")
         print(f"物理页码: {result.page_label}")
         print(f"片段 ID: {result.node_id}")
-        if result.provenance_complete:
-            print("来源状态: 可回到当前 PDF 核对")
-        else:
-            print(f"来源状态: 无法完成当前文件核对；{result.provenance_warning or '来源信息不完整'}")
+        print(f"来源状态: {result.source_status_label}")
         print("完整原文:")
         print(result.text)
 
@@ -91,11 +88,11 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="基于检索片段生成带引用的回答")
     parser.add_argument("index", type=Path, help="索引目录")
     parser.add_argument("question", help="自然语言问题")
-    parser.add_argument("--model-path", type=Path, default=DEFAULT_EMBEDDING_MODEL_PATH, help="覆盖默认的 Hugging Face embedding 模型快照目录")
-    parser.add_argument("--top-k", type=int, default=DEFAULT_RETRIEVAL_TOP_K, help=f"作为证据交付的片段数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）")
-    parser.add_argument("--rerank-model-path", type=Path, default=DEFAULT_RERANK_MODEL_PATH, help="覆盖配置文件中的本地 CrossEncoder 模型目录")
-    parser.add_argument("--candidate-k", type=int, default=DEFAULT_CANDIDATE_K, help=f"重排前 dense 粗召回数量（默认 {DEFAULT_CANDIDATE_K}）")
-    parser.add_argument("--dense-only", action="store_true", help="仅使用 dense 检索结果作为证据，不重排")
+    add_retrieval_arguments(
+        parser,
+        top_k_help=f"作为证据交付的片段数量（默认 {DEFAULT_RETRIEVAL_TOP_K}）",
+        dense_only_help="仅使用 dense 检索结果作为证据，不重排",
+    )
     parser.add_argument("--llm-model", default=DEFAULT_ANSWER_MODEL, help=f"生成模型名称（默认 {DEFAULT_ANSWER_MODEL}）")
     parser.add_argument("--api-base", default=DEFAULT_ANSWER_API_BASE, help="OpenAI 兼容服务地址")
     parser.add_argument("--api-key-env", default=DEFAULT_ANSWER_API_KEY_ENV, help=f"保存密钥的环境变量名（默认 {DEFAULT_ANSWER_API_KEY_ENV}）")

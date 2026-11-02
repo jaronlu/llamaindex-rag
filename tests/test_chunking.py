@@ -8,6 +8,7 @@ from unittest.mock import patch
 from concurrent.futures import ThreadPoolExecutor
 
 from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import MetadataMode, TextNode
 
 from src.rag.chunking.split import chunk_documents
@@ -36,6 +37,24 @@ class ChunkingTests(unittest.TestCase):
             self.assertTrue(nodes)
             for node, (start, end) in zip(nodes, offsets):
                 self.assertEqual(text[start:end], node.get_content(metadata_mode=MetadataMode.NONE))
+
+    def test_offset_splitter_matches_native_sentence_splitter_without_structure_blocks(self):
+        # 没有结构块时，适配器应退化为原生 SentenceSplitter。这条测试用于在升级
+        # LlamaIndex 后立即发现私有 _Split/_merge 契约漂移，而不是等切片结果悄悄变化。
+        texts = [
+            "First sentence. Second sentence. Third sentence.",
+            " ".join(f"Sentence {index} has several words." for index in range(12)),
+        ]
+        for text in texts:
+            self.assertEqual(structure_block_starts(text), [0, len(text)])
+            for chunk_size, chunk_overlap in ((30, 5), (30, 0), (16, 8), (64, 16)):
+                with self.subTest(chunk_size=chunk_size, chunk_overlap=chunk_overlap, text=text[:20]):
+                    adapted, _ = split_with_offsets(Document(text=text), chunk_size, chunk_overlap)
+                    native = SentenceSplitter(chunk_size=chunk_size, chunk_overlap=chunk_overlap).get_nodes_from_documents([Document(text=text)])
+                    self.assertEqual(
+                        [node.get_content(metadata_mode=MetadataMode.NONE) for node in adapted],
+                        [node.get_content(metadata_mode=MetadataMode.NONE) for node in native],
+                    )
 
     def test_boolean_page_numbers_are_rejected(self):
         for value in (True, False):

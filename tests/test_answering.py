@@ -205,6 +205,7 @@ class AnswerCommandTests(unittest.TestCase):
         self.assertIn("证据 1（已被引用）", text)
         self.assertIn("加班费按三档支付。", text)
         self.assertIn("物理页码: 291–292", text)
+        self.assertIn("来源状态: 可回到当前 PDF 核对", text)
         self.assertIn("发送到上述地址", text)
 
     def test_warns_about_invalid_citation(self):
@@ -228,6 +229,7 @@ class AnswerCommandTests(unittest.TestCase):
 
         self.assertEqual(code, 0)
         self.assertIn("来源检查: 引用的证据 [1] 无法回到当前文件核对", output.getvalue())
+        self.assertIn("来源状态: 无法完成当前文件核对；来源文件内容已变化", output.getvalue())
 
     def test_generation_failure_still_shows_retrieved_evidence(self):
         result = make_result(1, "加班费按三档支付。")

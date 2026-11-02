@@ -14,6 +14,7 @@ from ..chunking.split import chunk_documents
 from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_CHUNK_SIZE
 from ..ingestion.pdf import load_pdf
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
+from ..provenance import format_pages
 
 
 logger = logging.getLogger(__name__)
@@ -48,7 +49,7 @@ def main(argv: list[str] | None = None) -> int:
     lengths = [len(tokenize(text)) for text in texts]
     for index, (node, content, length) in enumerate(zip(nodes, texts, lengths), 1):
         pages = node.metadata[MetadataKey.PAGE_NUMBERS.value]
-        location = str(pages[0]) if len(pages) == 1 else f"{pages[0]}–{pages[-1]}"
+        location = format_pages(pages)
         print(f"\n--- 片段 {index} | ID {node.node_id} | 物理页码 {location} | {length} token | {len(content)} 字符 ---")
         print(content)
     for page in result.pages:

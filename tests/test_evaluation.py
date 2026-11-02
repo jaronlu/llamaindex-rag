@@ -11,7 +11,8 @@ from src.rag.retrieval.evaluate import (
     evaluate_questions,
     load_questions,
 )
-from src.rag.retrieval.search import RetrievalResult, format_pages
+from src.rag.provenance import format_pages
+from src.rag.retrieval.search import RetrievalResult
 
 
 def setUpModule():

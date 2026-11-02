@@ -6,7 +6,6 @@ CLI 负责串联加载、切片、模型检查和索引存储模块；真正的�
 
 import argparse
 import logging
-import hashlib
 import json
 import sys
 from pathlib import Path
@@ -19,20 +18,12 @@ from llama_index.core.schema import MetadataMode
 from ..chunking.split import chunk_documents
 from ..config.chunking import DEFAULT_CHUNK_OVERLAP, DEFAULT_INDEX_CHUNK_SIZE
 from ..config.common import DEFAULT_EMBEDDING_MODEL_PATH, DEFAULT_INFERENCE_DEVICE
-from ..config.indexing import HASH_READ_SIZE, MANIFEST_FILE, IndexCommand, ManifestKey
+from ..config.indexing import IndexCommand, ManifestKey
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 from ..indexing.store import IndexBuildError, build_index, read_node
 from ..indexing.model import snapshot_identity
 from ..ingestion.pdf import load_pdf
-
-
-def file_hash(path: Path) -> str:
-    """按文件内容计算 SHA-256 摘要，用于确认来源版本是否发生变化。"""
-    digest = hashlib.sha256()
-    with path.open("rb") as source:
-        for block in iter(lambda: source.read(HASH_READ_SIZE), b""):
-            digest.update(block)
-    return digest.hexdigest()
+from ..provenance import file_sha256, read_manifest, source_id_for, source_status
 
 
 logger = logging.getLogger(__name__)
@@ -68,11 +59,7 @@ def main(argv: list[str] | None = None) -> int:
     published = False
     try:
         if args.command == IndexCommand.OVERVIEW:
-            if not args.index.exists():
-                raise ValueError(f"索引不存在: {args.index}")
-            manifest = json.loads((args.index / MANIFEST_FILE).read_text(encoding="utf-8"))
-            if manifest.get(ManifestKey.COMPLETE) is not True:
-                raise ValueError("索引不完整，无法查看")
+            manifest = read_manifest(args.index)
             print(f"索引: {args.index}；片段数: {manifest.get(ManifestKey.CHUNK_COUNT, '未知')}")
             print(f"模型: {manifest.get(ManifestKey.MODEL, '未知')} @ {manifest.get(ManifestKey.VERSION, '未知')}；维度: {manifest.get(ManifestKey.DIMENSION, '未知')}；切片大小: {manifest.get(ManifestKey.CHUNK_SIZE, '未知')}；重叠: {manifest.get(ManifestKey.CHUNK_OVERLAP, '未知')}")
             for document in manifest.get(ManifestKey.DOCUMENTS, []):
@@ -81,15 +68,22 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == IndexCommand.READ:
             node = read_node(args.index, args.node_id)
-            manifest = json.loads((args.index / MANIFEST_FILE).read_text(encoding="utf-8"))
+            manifest = read_manifest(args.index)
             source_path = node.metadata.get(MetadataKey.SOURCE_PATH)
-            record = next((item for item in manifest.get(ManifestKey.DOCUMENTS, []) if item.get(ManifestKey.PATH) == source_path), None)
-            if not isinstance(source_path, str) or not source_path.strip() or not record:
-                print("警告：索引中缺少该片段的来源版本记录")
-            elif not Path(source_path).is_file():
-                print(f"警告：来源文件不存在或已移动: {source_path}")
-            elif file_hash(Path(source_path)) != record.get(ManifestKey.SHA256):
-                print(f"警告：来源文件内容已变化: {source_path}")
+            records = manifest.get(ManifestKey.DOCUMENTS)
+            # 空文本页提示仍需要清单中的原始记录；版本是否可核对统一交给 source_status。
+            record = next(
+                (item for item in records if isinstance(item, dict) and item.get(ManifestKey.PATH) == source_path),
+                None,
+            ) if isinstance(records, list) else None
+            if not isinstance(source_path, str) or not source_path.strip():
+                print("警告：索引中缺少该片段的来源路径")
+            else:
+                # 与检索阶段共用同一套版本核对，避免这里在清单记录或摘要缺失、文件
+                # 不可读时崩溃或误报“内容已变化”。
+                _, complete, warning = source_status(source_path, manifest)
+                if not complete:
+                    print(f"警告：{warning}")
             if record and record.get(ManifestKey.EMPTY_PAGES):
                 print(f"警告：所选范围存在空文本页，文本覆盖不完整: {record[ManifestKey.EMPTY_PAGES]}")
             print(f"片段 ID: {node.node_id}\n来源: {json.dumps(node.metadata, ensure_ascii=False)}\n{node.get_content(metadata_mode=MetadataMode.NONE)}")
@@ -104,7 +98,7 @@ def main(argv: list[str] | None = None) -> int:
         versions = []
         for path in paths:
             # 在读取前后各计算一次摘要；如果文件在读取期间变化，就拒绝把它记录成稳定版本。
-            digest = file_hash(path)
+            digest = file_sha256(path)
             result = load_pdf(path, args.start, args.end)
             failures = [page for page in result.pages if page.status == PageStatus.FAILED]
             if failures:
@@ -114,7 +108,7 @@ def main(argv: list[str] | None = None) -> int:
             if empty:
                 print(f"{path} 空文本页: {empty}")
             documents.extend(page.document for page in result.pages if page.status == PageStatus.SUCCESS and page.document is not None)
-            if digest != file_hash(path):
+            if digest != file_sha256(path):
                 raise ValueError(f"读取期间文件发生变化: {path}")
             versions.append({ManifestKey.PATH: str(path), ManifestKey.SHA256: digest, ManifestKey.START: args.start, ManifestKey.END: args.end or result.total_pages, ManifestKey.EMPTY_PAGES: empty, ManifestKey.TEXT_COVERAGE_COMPLETE: not empty})
         # 在本项目里，Document 表示一页，Node 表示一段切片；最终索引保存的是这些 Node。
@@ -126,7 +120,7 @@ def main(argv: list[str] | None = None) -> int:
         identity = snapshot_identity(model_path)
         logger.info("index.configuration model=%s version=%s chunk_size=%s overlap=%s", identity[ManifestKey.MODEL], identity[ManifestKey.VERSION], args.chunk_size, args.chunk_overlap)
         for item in versions:
-            item[ManifestKey.SOURCE_ID] = hashlib.sha256(item[ManifestKey.PATH].encode("utf-8")).hexdigest()
+            item[ManifestKey.SOURCE_ID] = source_id_for(Path(item[ManifestKey.PATH]))
         from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
         model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_INFERENCE_DEVICE, local_files_only=True)
         # 当前 LlamaIndex 没有公开这里需要的底层 tokenizer，因此读取已安装版本的

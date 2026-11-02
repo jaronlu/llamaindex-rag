@@ -7,8 +7,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 import math
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -19,20 +17,11 @@ from llama_index.core import StorageContext, load_index_from_storage
 from llama_index.core.schema import MetadataMode
 
 from ..config.common import DEFAULT_INFERENCE_DEVICE
-from ..config.indexing import HASH_READ_SIZE, MANIFEST_FILE, ManifestKey
 from ..config.retrieval import DEFAULT_CANDIDATE_K, DEFAULT_RETRIEVAL_TOP_K
 from ..config.ingestion import MetadataKey
 from ..indexing.model import snapshot_identity
 from ..indexing.store import check_compatibility
-
-
-def format_pages(pages: Sequence[int]) -> str:
-    """把物理页码格式化成 ``291``、``291–292``；没有页码时返回“无”。"""
-    if not pages:
-        return "无"
-    if len(pages) == 1:
-        return str(pages[0])
-    return f"{pages[0]}–{pages[-1]}"
+from ..provenance import format_pages, read_manifest, source_status
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,26 +51,24 @@ class RetrievalResult:
         """返回适合命令行展示的单页或跨页标签。"""
         return format_pages(self.page_numbers)
 
+    @property
+    def source_status_label(self) -> str:
+        """返回来源是否可回到当前文件核对的展示文案。
 
-def _read_manifest(index_path: Path) -> dict[str, Any]:
-    """读取并检查项目自己的索引清单。"""
-    index_path = index_path.expanduser().resolve()
-    if not index_path.is_dir():
-        raise ValueError(f"索引不存在: {index_path}")
-    manifest_path = index_path / MANIFEST_FILE
-    if not manifest_path.is_file():
-        raise ValueError(f"索引缺少清单文件: {manifest_path}")
-    try:
-        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
-        raise ValueError(f"索引清单无法读取: {manifest_path}: {exc}") from exc
-    if not isinstance(manifest, dict) or manifest.get(ManifestKey.COMPLETE) is not True:
-        raise ValueError("索引不完整，无法检索")
-    return manifest
+        检索和回答命令都需要这行提示；放在结果对象上可以保证两处措辞一致，
+        不会一处说“可核对”、另一处漏掉警告。
+        """
+        if self.provenance_complete:
+            return "可回到当前 PDF 核对"
+        return f"无法完成当前文件核对；{self.provenance_warning or '来源信息不完整'}"
 
 
 def _valid_provenance(metadata: dict[str, Any]) -> tuple[str, str, tuple[int, ...]] | None:
-    """校验节点中的 PDF 来源字段，返回规范化值或 ``None``。"""
+    """校验节点中的 PDF 来源字段，返回规范化值或 ``None``。
+
+    这里比切片写入侧 ``chunking.split`` 更宽松：索引中的 Node 可以跨页，且不强制
+    要求 ``source_id``。两套规则分别守住“查询兼容性”和“写入完整性”，不要合并。
+    """
     file_name = metadata.get(MetadataKey.FILE_NAME)
     source_path = metadata.get(MetadataKey.SOURCE_PATH)
     pages = metadata.get(MetadataKey.PAGE_NUMBERS)
@@ -94,33 +81,6 @@ def _valid_provenance(metadata: dict[str, Any]) -> tuple[str, str, tuple[int, ..
     if any(isinstance(page, bool) or not isinstance(page, int) or page < 1 for page in pages):
         return None
     return file_name, source_path, tuple(pages)
-
-
-def _source_status(source_path: str, manifest: dict[str, Any]) -> tuple[bool, bool, str | None]:
-    """核对来源文件是否存在且仍是构建索引时记录的版本。"""
-    path = Path(source_path)
-    if not path.is_file():
-        return False, False, f"来源文件不存在或已移动: {source_path}"
-
-    records = manifest.get(ManifestKey.DOCUMENTS)
-    record = next(
-        (item for item in records if isinstance(item, dict) and item.get(ManifestKey.PATH) == source_path),
-        None,
-    ) if isinstance(records, list) else None
-    expected_digest = record.get(ManifestKey.SHA256) if record else None
-    if not isinstance(expected_digest, str) or not expected_digest:
-        return True, False, f"索引清单缺少来源版本摘要: {source_path}"
-
-    digest = hashlib.sha256()
-    try:
-        with path.open("rb") as source:
-            for block in iter(lambda: source.read(HASH_READ_SIZE), b""):
-                digest.update(block)
-    except OSError as exc:
-        return True, False, f"无法读取来源文件以核对版本: {source_path}: {exc}"
-    if digest.hexdigest() != expected_digest:
-        return True, False, f"来源文件内容已变化: {source_path}"
-    return True, True, None
 
 
 def _result_from_node(
@@ -140,7 +100,7 @@ def _result_from_node(
         return None
     file_name, source_path, pages = provenance
     if source_path not in source_status_cache:
-        source_status_cache[source_path] = _source_status(source_path, manifest)
+        source_status_cache[source_path] = source_status(source_path, manifest)
     source_exists, provenance_complete, warning = source_status_cache[source_path]
     score = getattr(node_with_score, "score", None)
     if score is not None:
@@ -187,7 +147,7 @@ def retrieve(
         raise ValueError("Top-K 必须是正整数")
 
     index_path = index_path.expanduser().resolve()
-    manifest = _read_manifest(index_path)
+    manifest = read_manifest(index_path)
     model_path = model_path.expanduser().resolve(strict=True)
     identity = snapshot_identity(model_path)
     # 查询阶段能独立核对的只有模型身份（模型名、revision、快照内容摘要）。

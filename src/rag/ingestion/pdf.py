@@ -7,7 +7,6 @@ metadata；本模块额外保留每页的成功、空文本或失败状态，让
 import logging
 import time
 from dataclasses import dataclass
-from hashlib import sha256
 from pathlib import Path
 
 from llama_index.core import Document
@@ -15,6 +14,7 @@ from llama_index.core.readers.base import BaseReader
 from pypdf import PdfReader
 
 from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
+from ..provenance import source_id_for
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,7 @@ class PagePDFReader(BaseReader):
         if start < 1 or end < start or end > total:
             raise ValueError(f"页码范围无效: {start}-{end}，文档共 {total} 页")
         # source_id 基于规范化路径而不是文件内容；文件移动后它会随路径变化。
-        source_id = sha256(str(path).encode("utf-8")).hexdigest()
+        source_id = source_id_for(path)
         pages = []
         for number in range(start, end + 1):
             try:

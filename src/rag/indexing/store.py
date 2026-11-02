@@ -32,6 +32,7 @@ from ..config.indexing import (
     INDEX_BUILD_TEMP_PREFIX, INDEX_COMPATIBILITY_KEYS, INDEX_STAGING_DIR,
     MANIFEST_FILE, IndexBuildPhase, ManifestKey,
 )
+from ..provenance import read_manifest
 
 
 logger = logging.getLogger(__name__)
@@ -179,11 +180,8 @@ def read_node(location: Path, node_id: str) -> BaseNode:
     读取的是索引中保存的 Node，因此不会重新读取源 PDF；Node 里的正文和来源元数据
     可以在源文件不可用时仍然用于核对。
     """
-    if not location.exists():
-        raise ValueError(f"索引不存在: {location}")
-    manifest = json.loads((location / MANIFEST_FILE).read_text(encoding="utf-8"))
-    if manifest.get(ManifestKey.COMPLETE) is not True:
-        raise ValueError("索引不完整，无法读取")
+    # 清单读取和完成标记检查与检索、概览共用同一份实现。
+    read_manifest(location)
     # LlamaIndex 从这个目录恢复 docstore、向量存储等持久化对象。
     context = StorageContext.from_defaults(persist_dir=str(location))
     # docstore 是 LlamaIndex 保存节点正文和 metadata 的地方；这里只按 ID 查一个节点。
