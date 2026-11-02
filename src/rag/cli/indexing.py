@@ -23,7 +23,7 @@ from ..config.ingestion import DEFAULT_START_PAGE, MetadataKey, PageStatus
 from ..indexing.store import IndexBuildError, build_index, read_node
 from ..indexing.model import snapshot_identity
 from ..ingestion.pdf import load_pdf
-from ..provenance import file_sha256, read_manifest, source_id_for, source_status
+from ..provenance import document_record, document_records, file_sha256, read_manifest, source_id_for, source_status
 
 
 logger = logging.getLogger(__name__)
@@ -62,20 +62,18 @@ def main(argv: list[str] | None = None) -> int:
             manifest = read_manifest(args.index)
             print(f"索引: {args.index}；片段数: {manifest.get(ManifestKey.CHUNK_COUNT, '未知')}")
             print(f"模型: {manifest.get(ManifestKey.MODEL, '未知')} @ {manifest.get(ManifestKey.VERSION, '未知')}；维度: {manifest.get(ManifestKey.DIMENSION, '未知')}；切片大小: {manifest.get(ManifestKey.CHUNK_SIZE, '未知')}；重叠: {manifest.get(ManifestKey.CHUNK_OVERLAP, '未知')}")
-            for document in manifest.get(ManifestKey.DOCUMENTS, []):
+            # 损坏的清单条目不能让概览崩溃；来源记录的形状校验集中在 provenance。
+            for document in document_records(manifest):
                 coverage = "完整" if document.get(ManifestKey.TEXT_COVERAGE_COMPLETE) is True else "不完整或未知"
                 print(f"文件: {document.get(ManifestKey.PATH, '缺失')} | 物理页: {document.get(ManifestKey.START, '?')}–{document.get(ManifestKey.END, '?')} | 文本覆盖: {coverage} | 空文本页: {document.get(ManifestKey.EMPTY_PAGES, '未知')}")
             return 0
         if args.command == IndexCommand.READ:
-            node = read_node(args.index, args.node_id)
+            # 清单只解析一次：read_node 复用同一份清单，避免同一命令重复读文件。
             manifest = read_manifest(args.index)
+            node = read_node(args.index, args.node_id, manifest)
             source_path = node.metadata.get(MetadataKey.SOURCE_PATH)
-            records = manifest.get(ManifestKey.DOCUMENTS)
             # 空文本页提示仍需要清单中的原始记录；版本是否可核对统一交给 source_status。
-            record = next(
-                (item for item in records if isinstance(item, dict) and item.get(ManifestKey.PATH) == source_path),
-                None,
-            ) if isinstance(records, list) else None
+            record = document_record(source_path, manifest) if isinstance(source_path, str) else None
             if not isinstance(source_path, str) or not source_path.strip():
                 print("警告：索引中缺少该片段的来源路径")
             else:

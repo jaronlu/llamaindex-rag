@@ -10,7 +10,10 @@ from pypdf import PdfWriter
 from src.rag.config.indexing import HASH_READ_SIZE
 from src.rag.ingestion.pdf import load_pdf
 from src.rag.provenance import (
+    document_record,
+    document_records,
     file_sha256,
+    format_pages,
     read_manifest,
     source_id_for,
     source_status,
@@ -86,6 +89,10 @@ class ReadManifestTests(unittest.TestCase):
             manifest.write_text(json.dumps({"complete": False}), encoding="utf-8")
             with self.assertRaisesRegex(ValueError, "不完整"):
                 read_manifest(root)
+            # 非法 UTF-8 与 JSON 语法错误同属“内容不可用”，不能漏成原始编解码异常。
+            manifest.write_bytes(b'{"complete": true, "x": "\xff\xfe"}')
+            with self.assertRaisesRegex(ValueError, "无法读取"):
+                read_manifest(root)
 
     def test_returns_complete_manifest(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -93,6 +100,29 @@ class ReadManifestTests(unittest.TestCase):
             payload = {"complete": True, "chunk_count": 2}
             (root / "manifest.json").write_text(json.dumps(payload), encoding="utf-8")
             self.assertEqual(read_manifest(root), payload)
+
+
+class DocumentRecordTests(unittest.TestCase):
+    def test_skips_corrupt_records_and_non_list_documents(self):
+        manifest = {"documents": ["not-a-record", {"path": "/a.pdf", "sha256": "abc"}]}
+        self.assertEqual([item["path"] for item in document_records(manifest)], ["/a.pdf"])
+        self.assertEqual(document_record("/a.pdf", manifest), {"path": "/a.pdf", "sha256": "abc"})
+        self.assertIsNone(document_record("/missing.pdf", manifest))
+        self.assertEqual(document_records({"documents": "broken"}), [])
+        self.assertIsNone(document_record("/a.pdf", {}))
+
+
+class FormatPagesTests(unittest.TestCase):
+    def test_empty_single_and_contiguous_pages(self):
+        self.assertEqual(format_pages(()), "无")
+        self.assertEqual(format_pages((291,)), "291")
+        self.assertEqual(format_pages((291, 292)), "291–292")
+        # 未排序的连续页码仍应展示成升序区间。
+        self.assertEqual(format_pages((292, 291)), "291–292")
+
+    def test_non_contiguous_pages_are_listed_separately(self):
+        self.assertEqual(format_pages((291, 295)), "291、295")
+        self.assertEqual(format_pages((296, 291, 295)), "291、295、296")
 
 
 class SourceStatusTests(unittest.TestCase):

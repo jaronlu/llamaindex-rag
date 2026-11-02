@@ -11,7 +11,6 @@ from src.rag.retrieval.evaluate import (
     evaluate_questions,
     load_questions,
 )
-from src.rag.provenance import format_pages
 from src.rag.retrieval.search import RetrievalResult
 
 
@@ -77,11 +76,6 @@ class AnswerRankTests(unittest.TestCase):
     def test_missing_answer_returns_none_and_outside_topics_never_hit(self):
         self.assertIsNone(answer_rank([result(1, [10]), result(2, [11])], [291]))
         self.assertIsNone(answer_rank([result(1, [10])], []))
-
-    def test_format_pages(self):
-        self.assertEqual(format_pages(()), "无")
-        self.assertEqual(format_pages((291,)), "291")
-        self.assertEqual(format_pages((291, 292)), "291–292")
 
 
 class EvaluateQuestionsTests(unittest.TestCase):

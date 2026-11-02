@@ -172,16 +172,18 @@ def build_index(nodes: Sequence[BaseNode], embed_model: BaseEmbedding, location:
         raise IndexBuildError(f"{phase}失败：向量化成功 {completed}，向量化失败 {failed}，未处理 {remaining}；索引未发布、不可用。原因: {exc}", published=False) from exc
 
 
-def read_node(location: Path, node_id: str) -> BaseNode:
+def read_node(location: Path, node_id: str, manifest: dict[str, Any] | None = None) -> BaseNode:
     """从已保存的索引中按 ``node_id`` 取回一个片段。
 
     ``StorageContext`` 和 ``docstore.get_node`` 是 LlamaIndex 提供的读取能力。
     这里额外先检查 ``manifest.json`` 的完成标记，避免打开一个没有完整发布的目录。
     读取的是索引中保存的 Node，因此不会重新读取源 PDF；Node 里的正文和来源元数据
-    可以在源文件不可用时仍然用于核对。
+    可以在源文件不可用时仍然用于核对。调用方已经读过清单时可以传入 ``manifest``，
+    避免同一条命令重复解析清单文件。
     """
-    # 清单读取和完成标记检查与检索、概览共用同一份实现。
-    read_manifest(location)
+    # 清单读取和完成标记检查与检索、概览共用同一份实现；已读取的清单直接复用。
+    if manifest is None:
+        read_manifest(location)
     # LlamaIndex 从这个目录恢复 docstore、向量存储等持久化对象。
     context = StorageContext.from_defaults(persist_dir=str(location))
     # docstore 是 LlamaIndex 保存节点正文和 metadata 的地方；这里只按 ID 查一个节点。

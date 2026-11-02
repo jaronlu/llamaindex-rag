@@ -55,11 +55,37 @@ def read_manifest(index_path: Path) -> dict[str, Any]:
         raise ValueError(f"索引缺少清单文件: {manifest_path}")
     try:
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as exc:
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+        # 非法 UTF-8 与 JSON 语法错误同属“清单内容不可用”，都应按同一提示降级，
+        # 而不是让编解码异常直接逃逸。
         raise ValueError(f"索引清单无法读取: {manifest_path}: {exc}") from exc
     if not isinstance(manifest, dict) or manifest.get(ManifestKey.COMPLETE) is not True:
-        raise ValueError("索引不完整，无法检索")
+        raise ValueError("索引不完整，无法使用")
     return manifest
+
+
+def document_records(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    """返回清单中的文档记录，跳过损坏条目。
+
+    清单通常由本项目写入，但磁盘文件可能被手工修改或截断。概览和来源核验不应
+    因此崩溃，非对象条目直接忽略；``documents`` 本身不是列表时按空处理。
+    """
+    records = manifest.get(ManifestKey.DOCUMENTS)
+    if not isinstance(records, list):
+        return []
+    return [item for item in records if isinstance(item, dict)]
+
+
+def document_record(source_path: str, manifest: dict[str, Any]) -> dict[str, Any] | None:
+    """按来源路径取回清单中的文档记录；没有匹配项时返回 ``None``。
+
+    “按 PATH 匹配记录”原来在来源核验和命令行回查里各写了一份，副本一旦漂移，
+    版本状态和空文本页提示就会给出互相矛盾的结论。
+    """
+    return next(
+        (item for item in document_records(manifest) if item.get(ManifestKey.PATH) == source_path),
+        None,
+    )
 
 
 def source_status(source_path: str, manifest: dict[str, Any]) -> tuple[bool, bool, str | None]:
@@ -72,11 +98,7 @@ def source_status(source_path: str, manifest: dict[str, Any]) -> tuple[bool, boo
     if not path.is_file():
         return False, False, f"来源文件不存在或已移动: {source_path}"
 
-    records = manifest.get(ManifestKey.DOCUMENTS)
-    record = next(
-        (item for item in records if isinstance(item, dict) and item.get(ManifestKey.PATH) == source_path),
-        None,
-    ) if isinstance(records, list) else None
+    record = document_record(source_path, manifest)
     expected_digest = record.get(ManifestKey.SHA256) if record else None
     if not isinstance(expected_digest, str) or not expected_digest:
         return True, False, f"索引清单缺少来源版本摘要: {source_path}"
@@ -91,9 +113,16 @@ def source_status(source_path: str, manifest: dict[str, Any]) -> tuple[bool, boo
 
 
 def format_pages(pages: Sequence[int]) -> str:
-    """把物理页码格式化成 ``291``、``291–292``；没有页码时返回“无”。"""
+    """把物理页码格式化成 ``291``、``291–292``；没有页码时返回“无”。
+
+    只有连续页码才压缩成区间。人工标注的答案页可能不连续（如 291、295），一律
+    取首尾会让读者误以为中间页也是答案页；未排序的输入也先排序再展示。
+    """
     if not pages:
         return "无"
-    if len(pages) == 1:
-        return str(pages[0])
-    return f"{pages[0]}–{pages[-1]}"
+    ordered = sorted(set(pages))
+    if len(ordered) == 1:
+        return str(ordered[0])
+    if ordered[-1] - ordered[0] == len(ordered) - 1:
+        return f"{ordered[0]}–{ordered[-1]}"
+    return "、".join(str(page) for page in ordered)

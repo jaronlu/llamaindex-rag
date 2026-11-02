@@ -273,6 +273,19 @@ class IndexOverviewTests(unittest.TestCase):
             for value in ('example', 'v1', '128', '32', '8'):
                 self.assertIn(value, output.getvalue())
 
+    def test_overview_skips_corrupt_document_records(self):
+        import contextlib
+        import io
+        from src.rag.cli.indexing import main
+        with tempfile.TemporaryDirectory() as temp:
+            index = Path(temp) / 'index'
+            # 旧实现会在这里对字符串调用 .get()，整条概览直接失败。
+            build_index([TextNode(text='正文')], MockEmbedding(embed_dim=8), index,
+                        {'documents': ['not-a-record']})
+            with contextlib.redirect_stdout(io.StringIO()) as output:
+                self.assertEqual(main(['overview', str(index)]), 0)
+            self.assertIn('片段数', output.getvalue())
+
     def test_missing_index_and_node_have_clear_errors(self):
         import contextlib
         import io

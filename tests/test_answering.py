@@ -1,7 +1,9 @@
 import contextlib
 import io
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -20,6 +22,15 @@ from src.rag.answering.generate import (
 from src.rag.cli.answering import main
 from src.rag.config.answering import DEFAULT_ANSWER_API_KEY_ENV
 from src.rag.retrieval.search import RetrievalResult
+
+
+def setUpModule():
+    """把回答测试的日志写入临时文件，避免污染用户的运行日志。"""
+    temp = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(temp.cleanup)
+    env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
 
 
 def make_result(

@@ -4,6 +4,22 @@
 ``provenance`` 目录后，各阶段不再维护容易分叉的副本。
 """
 
-from .verify import file_sha256, format_pages, read_manifest, source_id_for, source_status
+from .verify import (
+    document_record,
+    document_records,
+    file_sha256,
+    format_pages,
+    read_manifest,
+    source_id_for,
+    source_status,
+)
 
-__all__ = ["file_sha256", "format_pages", "read_manifest", "source_id_for", "source_status"]
+__all__ = [
+    "document_record",
+    "document_records",
+    "file_sha256",
+    "format_pages",
+    "read_manifest",
+    "source_id_for",
+    "source_status",
+]

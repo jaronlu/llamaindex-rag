@@ -2,6 +2,7 @@ import contextlib
 import hashlib
 import io
 import json
+import os
 import tempfile
 import unittest
 from dataclasses import replace
@@ -15,6 +16,15 @@ from src.rag.indexing.model import snapshot_identity
 from src.rag.indexing.store import build_index
 from src.rag.provenance import source_status
 from src.rag.retrieval.search import RetrievalResult, retrieve, rerank, retrieve_and_rerank
+
+
+def setUpModule():
+    """把检索测试的日志写入临时文件，避免污染用户的运行日志。"""
+    temp = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(temp.cleanup)
+    env = patch.dict(os.environ, {'RAG_LOG_FILE': str(Path(temp.name) / 'test.log'), 'RAG_LOG_LEVEL': 'INFO'})
+    env.start()
+    unittest.addModuleCleanup(env.stop)
 
 
 class FakeLocalEmbedding(MockEmbedding):
