@@ -8,3 +8,8 @@ tmp/
 dist/
 .superpowers/
 docs/superpowers/
+.DS_Store
+# Xcode：用户级设置和本地构建产物不随仓库分发
+xcuserdata/
+*.xcuserstate
+ios/build/
