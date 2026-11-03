@@ -16,6 +16,7 @@ from src.rag.answering.generate import (
     SYSTEM_PROMPT,
     build_messages,
     create_llm,
+    describe_llm_error,
     generate_answer,
     parse_citations,
     select_relevant_evidence,
@@ -68,6 +69,39 @@ class FakeModel:
     def chat(self, messages: Sequence[ChatMessage]) -> ChatResponse:
         self.messages.append(list(messages))
         return ChatResponse(message=ChatMessage(role=MessageRole.ASSISTANT, content=self.text), raw=self.raw)
+
+
+class LLMClientTests(unittest.TestCase):
+    """代理开关只影响生成客户端，不改变回答流程。"""
+
+    def create(self, *, trust_env: bool) -> None:
+        create_llm(
+            model="test-model",
+            api_base="https://example.invalid/v1",
+            api_key="key",
+            temperature=0.1,
+            max_tokens=10,
+            timeout=5.0,
+            trust_env=trust_env,
+        )
+
+    def test_default_uses_sdk_proxy_discovery(self) -> None:
+        with patch("src.rag.answering.generate.httpx.Client") as client:
+            self.create(trust_env=True)
+        client.assert_not_called()
+
+    def test_no_proxy_builds_direct_client(self) -> None:
+        with patch("src.rag.answering.generate.httpx.Client") as client:
+            self.create(trust_env=False)
+        client.assert_called_once_with(trust_env=False)
+
+    def test_connection_error_mentions_direct_flag(self) -> None:
+        message = describe_llm_error(RuntimeError("Connection error."))
+        self.assertIn("无法连接生成服务", message)
+        self.assertIn("--no-llm-proxy", message)
+
+    def test_other_error_keeps_detail(self) -> None:
+        self.assertEqual(describe_llm_error(ValueError("bad")), "ValueError: bad")
 
 
 class EvidenceFilterTests(unittest.TestCase):

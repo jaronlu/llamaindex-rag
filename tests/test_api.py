@@ -9,6 +9,7 @@ import json
 import os
 import tempfile
 import unittest
+from dataclasses import replace
 from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
@@ -19,7 +20,13 @@ from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageR
 
 from src.rag.answering.generate import INSUFFICIENT_EVIDENCE_ANSWER
 from src.rag.api.app import ApiSettings, create_app
-from src.rag.config.api import API_TOKEN_ENV, MAX_CANDIDATE_K, MAX_QUESTION_CHARS, MAX_TOP_K
+from src.rag.config.api import (
+    API_TOKEN_ENV,
+    MAX_CANDIDATE_K,
+    MAX_QUESTION_CHARS,
+    MAX_TOP_K,
+    OPENAI_COMPAT_MODEL_ID,
+)
 from src.rag.retrieval.search import RetrievalResult
 
 
@@ -94,6 +101,18 @@ def parse_sse(text: str) -> list[tuple[str, Any]]:
         name, data = block.split("\n", 1)
         events.append((name.removeprefix("event: "), json.loads(data.removeprefix("data: "))))
     return events
+
+
+def parse_openai_sse(text: str) -> list[Any]:
+    """解析 OpenAI 流式响应；``[DONE]`` 保留为 ``None``，便于断言流结束位置。"""
+    payloads: list[Any] = []
+    for block in text.strip().split("\n\n"):
+        line = block.strip()
+        if not line.startswith("data: "):
+            continue
+        data = line.removeprefix("data: ")
+        payloads.append(None if data == "[DONE]" else json.loads(data))
+    return payloads
 
 
 class ApiTestCase(unittest.TestCase):
@@ -247,6 +266,15 @@ class AskTests(ApiTestCase):
             response = self.client().post("/ask", json={"question": "问题"})
         self.assertEqual(response.status_code, 503)
         self.assertIn("未设置环境变量", response.json()["detail"])
+
+    def test_ask_passes_proxy_setting_to_llm(self) -> None:
+        self.settings = replace(self.settings, llm_trust_env=False)
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1)]), patch(
+            "src.rag.api.app.resolve_api_key", return_value="key"
+        ), patch("src.rag.api.app.create_llm", return_value=FakeChatModel()) as create:
+            response = self.client().post("/ask", json={"question": "问题"})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(create.call_args.kwargs["trust_env"])
 
     def test_ask_generation_failure_is_502(self) -> None:
         with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1)]), patch(
@@ -411,6 +439,124 @@ class AuthTests(ApiTestCase):
                 "/search", json={"question": "问题"}, headers={"Authorization": "Bearer secret"}
             )
         self.assertEqual(response.status_code, 200)
+
+
+class OpenAICompatTests(ApiTestCase):
+    """OpenAI 兼容入口：模型列表、非流式与流式对话、错误结构。"""
+
+    def chat(self, payload: dict[str, object]) -> Any:
+        return self.client().post("/v1/chat/completions", json=payload)
+
+    def test_models_lists_compat_model(self) -> None:
+        response = self.client().get("/v1/models")
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["object"], "list")
+        self.assertEqual([item["id"] for item in body["data"]], [OPENAI_COMPAT_MODEL_ID])
+        self.assertEqual(body["data"][0]["object"], "model")
+
+    def test_chat_completion_returns_openai_shape_with_sources(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1)]), patch(
+            "src.rag.api.app.resolve_api_key", return_value="key"
+        ), patch("src.rag.api.app.create_llm", return_value=FakeChatModel()):
+            response = self.chat({"model": "gpt-4o", "messages": [{"role": "user", "content": "问题"}]})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["object"], "chat.completion")
+        self.assertEqual(body["model"], "gpt-4o")
+        choice = body["choices"][0]
+        self.assertEqual(choice["finish_reason"], "stop")
+        content = choice["message"]["content"]
+        self.assertIn("答案 [1]", content)
+        self.assertIn("source.pdf", content)
+        self.assertIn("第 1–2 页", content)
+
+    def test_chat_completion_without_evidence_skips_generation(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[]), patch(
+            "src.rag.api.app.resolve_api_key"
+        ) as resolve:
+            response = self.chat({"messages": [{"role": "user", "content": "你好"}]})
+
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["model"], OPENAI_COMPAT_MODEL_ID)
+        self.assertEqual(body["choices"][0]["message"]["content"], INSUFFICIENT_EVIDENCE_ANSWER)
+        resolve.assert_not_called()
+
+    def test_chat_completion_filters_low_relevance(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1, score=0.1)]), patch(
+            "src.rag.api.app.resolve_api_key"
+        ) as resolve:
+            response = self.chat({"messages": [{"role": "user", "content": "你好"}]})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["choices"][0]["message"]["content"], INSUFFICIENT_EVIDENCE_ANSWER)
+        resolve.assert_not_called()
+
+    def test_chat_completion_uses_last_user_message(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1)]) as retrieve, patch(
+            "src.rag.api.app.resolve_api_key", return_value="key"
+        ), patch("src.rag.api.app.create_llm", return_value=FakeChatModel()):
+            self.chat(
+                {
+                    "messages": [
+                        {"role": "user", "content": "旧问题"},
+                        {"role": "assistant", "content": "旧回答"},
+                        {"role": "user", "content": "新问题"},
+                    ]
+                }
+            )
+
+        self.assertEqual(retrieve.call_args.args[3], "新问题")
+
+    def test_chat_completion_without_user_message_is_openai_error(self) -> None:
+        response = self.chat({"messages": [{"role": "system", "content": "指令"}]})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("user", response.json()["error"]["message"])
+
+    def test_invalid_request_is_openai_error(self) -> None:
+        response = self.chat({"messages": "not-a-list"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("message", response.json()["error"])
+
+    def test_stream_emits_chunks_and_sources(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[make_result(1)]), patch(
+            "src.rag.api.app.resolve_api_key", return_value="key"
+        ), patch("src.rag.api.app.create_llm", return_value=FakeStreamModel()):
+            response = self.chat({"messages": [{"role": "user", "content": "问题"}], "stream": True})
+
+        self.assertEqual(response.status_code, 200)
+        self.assertTrue(response.headers["content-type"].startswith("text/event-stream"))
+        payloads = parse_openai_sse(response.text)
+        self.assertIsNone(payloads[-1])
+        self.assertEqual(payloads[0]["object"], "chat.completion.chunk")
+        self.assertEqual(payloads[0]["choices"][0]["delta"]["role"], "assistant")
+        content = "".join(item["choices"][0]["delta"].get("content", "") for item in payloads if item)
+        self.assertEqual(content, "答案 [1]\n\n来源：\n[1] source.pdf 第 1–2 页")
+        self.assertEqual(payloads[-2]["choices"][0]["finish_reason"], "stop")
+
+    def test_stream_without_evidence_skips_generation(self) -> None:
+        with patch("src.rag.api.app.retrieve_and_rerank", return_value=[]), patch(
+            "src.rag.api.app.resolve_api_key"
+        ) as resolve:
+            response = self.chat({"messages": [{"role": "user", "content": "你好"}], "stream": True})
+
+        payloads = parse_openai_sse(response.text)
+        self.assertIsNone(payloads[-1])
+        content = "".join(item["choices"][0]["delta"].get("content", "") for item in payloads if item)
+        self.assertEqual(content, INSUFFICIENT_EVIDENCE_ANSWER)
+        self.assertEqual(payloads[-2]["choices"][0]["finish_reason"], "stop")
+        resolve.assert_not_called()
+
+    def test_compat_routes_require_token(self) -> None:
+        with patch.dict(os.environ, {API_TOKEN_ENV: "secret"}):
+            client = TestClient(create_app(self.settings))
+            models = client.get("/v1/models")
+            chat = client.post("/v1/chat/completions", json={"messages": [{"role": "user", "content": "问题"}]})
+        self.assertEqual(models.status_code, 401)
+        self.assertEqual(chat.status_code, 401)
+        self.assertIn("message", models.json()["error"])
 
 
 if __name__ == "__main__":

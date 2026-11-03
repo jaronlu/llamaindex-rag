@@ -166,7 +166,7 @@ uv run python -m src.rag.cli.retrieval evaluate data/index-from14-384 docs/exper
 
 ## 回答
 
-回答命令复用检索或重排结果，把问题和交付的片段发送给 OpenAI 兼容的生成模型，不重新解析 PDF。默认服务是火山方舟的 `glm-5.3-flash`（`https://ark.cn-beijing.volces.com/api/coding/v3`），属于外部服务：问题和片段正文会离开本机，按服务商规则计费；PDF 文件、索引和其他文档不会发送。地址和模型集中在 `src/rag/config/answering.py`，可用 `--api-base`、`--llm-model` 临时覆盖。
+回答命令复用检索或重排结果，把问题和交付的片段发送给 OpenAI 兼容的生成模型，不重新解析 PDF。默认服务是火山方舟的 `glm-5.3-flash`（`https://ark.cn-beijing.volces.com/api/coding/v3`），属于外部服务：问题和片段正文会离开本机，按服务商规则计费；PDF 文件、索引和其他文档不会发送。地址和模型集中在 `src/rag/config/answering.py`，可用 `--api-base`、`--llm-model` 临时覆盖。生成请求默认跟随系统和环境变量代理；如果系统代理无法访问该服务（表现为 `Connection error.`），加 `--no-llm-proxy` 让生成请求直连。
 
 密钥只从环境变量读取，不能写在命令行或配置文件里：
 
@@ -200,6 +200,16 @@ uv run python -m src.rag.cli.serve data/quickstart-index --host 0.0.0.0
 ```
 
 `0.0.0.0` 会让同网段其他设备也能访问，只在可信网络使用；不要暴露到公网。服务本身不广播地址，手机端也没有自动发现，需要按下一节的方法手动查 IP。
+
+### 生成服务与代理
+
+生成请求默认跟随系统和环境变量代理。macOS 的系统代理会被 Python 的 httpx 读取；代理配置异常时，服务只能看到连接失败，回答页显示“生成回答失败: Connection error.”。如果代理无法访问生成服务而直连正常，启动时加 `--no-llm-proxy`：
+
+```bash
+uv run python -m src.rag.cli.serve data/quickstart-index --host 0.0.0.0 --no-llm-proxy
+```
+
+启动输出会显示 `生成请求代理: 直连（--no-llm-proxy）`。回答命令也支持同一参数；也可以把生成服务域名加入系统代理的忽略列表。
 
 ### 查看本机局域网地址
 
@@ -256,6 +266,8 @@ curl -s http://127.0.0.1:8000/search \
 | GET | `/health` | 返回索引路径、片段数、模型身份、索引是否可用和是否需要令牌；不需要鉴权 |
 | POST | `/search` | 返回带来源的候选片段，不调用生成模型 |
 | POST | `/ask` | 基于候选片段生成回答；`stream` 参数控制返回形式 |
+| GET | `/v1/models` | OpenAI 兼容的模型列表；声明一个可用标识 `rag` |
+| POST | `/v1/chat/completions` | OpenAI 兼容的对话接口；复用检索、相关度过滤和生成 |
 
 `/search` 返回原始候选，便于排查低分结果；`/ask` 在生成前应用同一套相关度门槛（启动参数 `--min-rerank-score` 默认 0.3、`--min-dense-score` 默认 0.5）。全部候选低于门槛时，`/ask` 返回 `llm_called: false` 的资料不足回答，证据列表为空，不调用生成模型。
 
@@ -291,6 +303,20 @@ curl -s -X POST http://127.0.0.1:8000/ask \
   -H 'Content-Type: application/json' \
   -d '{"question":"年休假有多少天？","top_k":2}' | python3 -m json.tool
 ```
+
+### OpenAI 兼容接口
+
+Chatbox、Cherry Studio 等客户端可以直接把服务地址填成 `http://<主机>:8000/v1`，密钥可留空；服务端设置了 `RAG_API_TOKEN` 时填入同一个值。`GET /v1/models` 返回标识 `rag`；`POST /v1/chat/completions` 取 `messages` 中最后一条非空 user 内容作为问题，检索、相关度过滤和生成规则与 `/ask` 一致。
+
+```bash
+curl -s http://127.0.0.1:8000/v1/models
+
+curl -s -X POST http://127.0.0.1:8000/v1/chat/completions \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"rag","messages":[{"role":"user","content":"年休假有多少天？"}]}' | python3 -m json.tool
+```
+
+OpenAI 协议没有结构化的证据字段，因此回答末尾会附上被引用证据的文件名和页码，例如 `[1] HowToLiveBetter.pdf 第 291–292 页`。请求里的 `model`、`temperature` 等字段只用于回显或忽略，实际模型和生成参数由启动配置决定。流式请求使用标准的 `chat.completion.chunk`，并以 `data: [DONE]` 结束。
 
 检索和回答都复用已保存的索引；问题不会被重新解析成文档，也不会写入服务端日志（只记录问题长度和片段数量）。`/ask` 会把问题和证据发送到配置的生成服务并产生费用，密钥只从环境变量读取。第一次请求需要加载 embedding 和重排模型，通常要多等几秒。
 

@@ -14,6 +14,7 @@ from collections.abc import Iterator, Sequence
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Protocol
 
+import httpx
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
 
 from ..config.answering import DEFAULT_MIN_DENSE_SCORE, DEFAULT_MIN_RERANK_SCORE
@@ -91,11 +92,15 @@ def create_llm(
     temperature: float,
     max_tokens: int,
     timeout: float,
+    trust_env: bool = True,
 ) -> OpenAILike:
     """创建指向 OpenAI 兼容服务的聊天模型。
 
     通过 ``OpenAILike`` 复用 LlamaIndex 的 LLM 接口；本项目只封装客户端构造和
     参数默认值，不实现协议本身。API key 由调用方从环境变量读入，函数不记录它。
+
+    ``trust_env`` 为假时使用不读取代理环境（含 macOS 系统代理）的 httpx 客户端，
+    适合代理无法访问该服务、但直连正常的情况；为真时保持 SDK 默认行为。
     """
     from llama_index.llms.openai_like import OpenAILike  # type: ignore[import-untyped]
 
@@ -107,7 +112,31 @@ def create_llm(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
+        http_client=None if trust_env else httpx.Client(trust_env=False),
     )
+
+
+def describe_llm_error(exc: Exception) -> str:
+    """把生成失败转换成可操作的提示。
+
+    SDK 对连接问题通常只给出 ``Connection error.``，用户无法判断是网络、API
+    地址还是代理的问题。这里只补充提示文案，不改变异常语义：调用方仍按失败
+    处理，不重试，也不返回半截回答。
+    """
+    detail = str(exc).strip() or type(exc).__name__
+    text = detail if detail == type(exc).__name__ else f"{type(exc).__name__}: {detail}"
+    lowered = detail.lower()
+    if (
+        "connection error" in lowered
+        or "connecterror" in lowered
+        or "timeout" in lowered
+        or "timed out" in lowered
+    ):
+        return (
+            f"无法连接生成服务（{text}）。请检查网络、API 地址和代理设置；"
+            "如果系统代理无法访问该服务，可用 --no-llm-proxy 直连。"
+        )
+    return text
 
 
 def select_relevant_evidence(

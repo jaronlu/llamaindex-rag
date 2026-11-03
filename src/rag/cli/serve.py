@@ -21,6 +21,7 @@ from ..config.answering import (
     DEFAULT_ANSWER_API_BASE,
     DEFAULT_ANSWER_API_KEY_ENV,
     DEFAULT_ANSWER_MODEL,
+    DEFAULT_ANSWER_TRUST_ENV,
     DEFAULT_MIN_DENSE_SCORE,
     DEFAULT_MIN_RERANK_SCORE,
 )
@@ -85,6 +86,13 @@ def main(argv: list[str] | None = None) -> int:
         help=f"保存密钥的环境变量名（默认 {DEFAULT_ANSWER_API_KEY_ENV}）",
     )
     parser.add_argument(
+        "--no-llm-proxy",
+        dest="llm_trust_env",
+        action="store_false",
+        default=DEFAULT_ANSWER_TRUST_ENV,
+        help="生成请求不读取系统和环境变量代理，直连 API 地址",
+    )
+    parser.add_argument(
         "--min-rerank-score",
         type=float,
         default=DEFAULT_MIN_RERANK_SCORE,
@@ -115,6 +123,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"监听: http://{args.host}:{args.port}")
     print(f"默认请求参数: dense top {DEFAULT_CANDIDATE_K} → rerank top {DEFAULT_RETRIEVAL_TOP_K}")
     print(f"生成模型: {args.llm_model}（{args.api_base}）")
+    proxy_mode = "跟随系统和环境变量" if args.llm_trust_env else "直连（--no-llm-proxy）"
+    print(f"生成请求代理: {proxy_mode}")
     print(f"回答相关度门槛: dense ≥ {args.min_dense_score} / rerank ≥ {args.min_rerank_score}")
     if args.host not in _LOOPBACK_HOSTS:
         print("警告：正在监听非本机地址，同一网段的其他设备可以访问；请确认网络可信，不要暴露到公网。")
@@ -134,6 +144,7 @@ def main(argv: list[str] | None = None) -> int:
         answer_api_key_env=args.api_key_env,
         min_rerank_score=args.min_rerank_score,
         min_dense_score=args.min_dense_score,
+        llm_trust_env=args.llm_trust_env,
     )
     app = create_app(settings)
     try:

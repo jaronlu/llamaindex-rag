@@ -19,6 +19,7 @@ from .logging import logged_command
 from ..answering.generate import (
     Answer,
     create_llm,
+    describe_llm_error,
     generate_answer,
     resolve_api_key,
     select_relevant_evidence,
@@ -30,6 +31,7 @@ from ..config.answering import (
     DEFAULT_ANSWER_MODEL,
     DEFAULT_ANSWER_TEMPERATURE,
     DEFAULT_ANSWER_TIMEOUT_SECONDS,
+    DEFAULT_ANSWER_TRUST_ENV,
     DEFAULT_MIN_DENSE_SCORE,
     DEFAULT_MIN_RERANK_SCORE,
 )
@@ -96,6 +98,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--api-base", default=DEFAULT_ANSWER_API_BASE, help="OpenAI 兼容服务地址")
     parser.add_argument("--api-key-env", default=DEFAULT_ANSWER_API_KEY_ENV, help=f"保存密钥的环境变量名（默认 {DEFAULT_ANSWER_API_KEY_ENV}）")
     parser.add_argument(
+        "--no-llm-proxy",
+        dest="llm_trust_env",
+        action="store_false",
+        default=DEFAULT_ANSWER_TRUST_ENV,
+        help="生成请求不读取系统和环境变量代理，直连 API 地址",
+    )
+    parser.add_argument(
         "--min-rerank-score",
         type=float,
         default=DEFAULT_MIN_RERANK_SCORE,
@@ -142,6 +151,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"相关度过滤: {candidate_count} 条候选中 {candidate_count - len(results)} 条低于门槛，未作为证据。")
     print(f"生成模型: {args.llm_model}")
     print(f"API 地址: {args.api_base}")
+    print(f"生成请求代理: {'跟随系统和环境变量' if args.llm_trust_env else '直连（--no-llm-proxy）'}")
 
     if not results:
         answer = generate_answer(args.question, results)
@@ -159,11 +169,12 @@ def main(argv: list[str] | None = None) -> int:
             temperature=DEFAULT_ANSWER_TEMPERATURE,
             max_tokens=DEFAULT_ANSWER_MAX_TOKENS,
             timeout=DEFAULT_ANSWER_TIMEOUT_SECONDS,
+            trust_env=args.llm_trust_env,
         )
         answer = generate_answer(args.question, results, llm)
     except Exception as exc:
         logger.exception("answering.generation_failed model=%s api_base=%s", args.llm_model, args.api_base)
-        print(f"生成回答失败: {exc}", file=sys.stderr)
+        print(f"生成回答失败: {describe_llm_error(exc)}", file=sys.stderr)
         # 检索阶段已经完成；把片段打印出来，便于判断失败前证据是否已经取到、
         # 内容是否足以回答，而不是让用户只能重跑一次检索。
         print("\n检索已完成，以下证据已取得但未生成回答，可供排查:")

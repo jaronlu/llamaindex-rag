@@ -15,6 +15,11 @@ DEFAULT_ANSWER_TEMPERATURE = 0.1
 DEFAULT_ANSWER_MAX_TOKENS = 4096
 DEFAULT_ANSWER_TIMEOUT_SECONDS = 60.0
 
+# 生成请求是否读取系统或环境变量里的代理。macOS 的系统代理会被 httpx 读取；
+# 代理配置错误时表现为只有 "Connection error." 的连接失败，而直连往往正常。
+# 保持默认行为（跟随系统和环境变量），需要绕过时用 --no-llm-proxy 显式关闭。
+DEFAULT_ANSWER_TRUST_ENV = True
+
 # 相关性门槛：只按排名取前 K，会把“你好”这类问题也塞进 5 条无关片段，生成模型
 # 随后把它们总结成答案。分数来自 quickstart 索引的实测：文档内问题 dense ≥ 0.66、
 # rerank ≥ 0.53，问候和书外问题 dense ≤ 0.42、rerank ≤ 0.20。重排分与 dense 分的

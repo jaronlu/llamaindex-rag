@@ -16,3 +16,7 @@ API_TOKEN_ENV = "RAG_API_TOKEN"
 MAX_QUESTION_CHARS = 2000
 MAX_TOP_K = 20
 MAX_CANDIDATE_K = 100
+
+# OpenAI 兼容接口对外暴露的模型标识。客户端会把它当作可对话的模型；实际执行
+# 仍是本项目的检索和回答，请求里的 model 字段只用于回显，不参与模型选择。
+OPENAI_COMPAT_MODEL_ID = "rag"
