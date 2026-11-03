@@ -4,12 +4,21 @@ SwiftUI 客户端，只通过局域网调用 Mac 上的 `rag.cli.serve`。App �
 
 当前进度：问答页（流式回答、证据和引用检查）+ 设置页（地址与 `GET /health` 连通性检查）。
 
+## 界面
+
+| 回答与引用 | 引用检查与证据列表 |
+| --- | --- |
+| ![问答页：带引用的流式回答](assets/Screenshot.png) | ![问答页：引用检查和证据列表](assets/Screenshot2.png) |
+
+截图来自模拟器，索引只覆盖 `HowToLiveBetter.pdf` 第 291–292 页；换成自己的索引后，证据文件名和页码会随之变化。
+
 ## 目录
 
 ```text
 ios/
 ├── RAGClient.xcodeproj/          # 手写的 Xcode 工程（同步文件夹，无需 xcodegen）
 ├── RAGClient-Info.plist          # ATS 例外与本地网络权限说明
+├── assets/                       # README 截图
 └── RAGClient/
     ├── RAGClientApp.swift        # 问答 / 设置两个标签
     ├── AskView.swift             # 提问、流式回答、证据列表
