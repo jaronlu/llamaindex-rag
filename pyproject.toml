@@ -8,19 +8,31 @@ license-files = ["LICENSE"]
 authors = [{ name = "jaronlu" }]
 requires-python = ">=3.12"
 dependencies = [
+    # LlamaIndex 核心：提供 Document/TextNode、SentenceSplitter 等切片组件，
+    # StorageContext/VectorStoreIndex 与索引持久化，以及 LLM/Embedding 的抽象基类和消息类型。
+    # 具体模型和文件读取实现由下面的扩展包提供。
     "llama-index-core>=0.14.25",
+    # 本地向量化：通过 HuggingFaceEmbedding 从本地 Hugging Face 缓存加载
+    # BAAI/bge-small-zh-v1.5（local_files_only=True），切片正文不会发送到外部服务。
     "llama-index-embeddings-huggingface>=0.6,<0.7",
+    # 生成模型接入：通过 OpenAILike 调用 OpenAI 兼容接口（默认火山方舟 glm-5.3-flash）；
+    # 问题和证据片段会发送到外部服务并产生费用。
     "llama-index-llms-openai-like>=0.8.1",
-    "llama-index-readers-file>=0.7.0",
-    "fastapi>=0.115",
-    "pypdf>=6.21.3",
-    "sentence-transformers>=5.0",
-    "uvicorn>=0.30",
-]
-
-[dependency-groups]
-dev = [
+    # HTTP 客户端：generate.py 用它构造禁用代理的 Client 传给 OpenAILike；
+    # 测试也用它驱动 FastAPI TestClient，并 patch 生成模块里的 Client。
     "httpx>=0.27",
+    # 通用文件读取器（PDFReader、DocxReader 等）。当前 PDF 加载使用自定义 PagePDFReader
+    # 以保留物理页码，此包用于按需扩展其他格式或改用通用 Reader。
+    "llama-index-readers-file>=0.7.0",
+    # Web API：在 src/rag/api/app.py 提供问答接口、鉴权和流式响应，供 iOS 客户端调用。
+    "fastapi>=0.115",
+    # PDF 解析：PagePDFReader 用 PdfReader 逐页提取文本并记录从 1 开始的页码；
+    # 测试也用 PdfWriter 生成临时 PDF 夹具。
+    "pypdf>=6.21.3",
+    # 本地重排：用 CrossEncoder 对检索候选片段重新打分，降低无关片段进入回答。
+    "sentence-transformers>=5.0",
+    # ASGI 服务器：cli/serve.py 用它启动 FastAPI 应用。
+    "uvicorn>=0.30",
 ]
 
 [project.urls]
