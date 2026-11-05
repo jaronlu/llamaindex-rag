@@ -22,7 +22,7 @@
 | 类型 | LlamaIndex 覆盖 | 组件（安装包路径已确认） | 现实提醒 |
 | --- | --- | --- | --- |
 | 事实型（单跳） | 有，核心路径 | `VectorStoreIndex.as_retriever` + QueryEngine | 本项目现状，够用 |
-| 总结型 | 有，多种解 | `TreeSummarize`（`response_synthesizers/tree_summarize.py`，分治式：repack → 各批并行摘要 → 递归合并）；`SummaryIndex`（`indices/list/base.py`）；`DocumentSummaryIndex`（`indices/document_summary/base.py`，每文档建摘要层，专为全书之问设计） | 递归摘要会洗掉片段来源，接入须解决与溯源要求的冲突（取舍记录见 question-types.md） |
+| 总结型 | 有，多种解 | `TreeSummarize`（`response_synthesizers/tree_summarize.py`，分治式：repack → 各批并行摘要 → 递归合并）；`SummaryIndex`（`indices/list/base.py`）；`DocumentSummaryIndex`（`indices/document_summary/base.py`，每文档建摘要层，适合全书级摘要类问题） | 递归摘要会洗掉片段来源，接入须解决与溯源要求的冲突（取舍记录见 question-types.md） |
 | 多跳型 | 有，一等公民 | `SubQuestionQueryEngine`（`query_engine/sub_question_query_engine.py`）：LLM 拆子问题 → 逐个子引擎作答 → 汇总 | 每个子问题一次完整 LLM 调用，慢且贵；子问题质量依赖拆分 prompt |
 | 比较型 | 有 | 同 `SubQuestionQueryEngine`，常用于两文档对比场景 | 拆成两路各自检索再对比，天然契合 |
 | 流程型（顺序敏感） | 无专门组件 | 靠切片策略（一个流程不切散）、元数据记步骤号、合成 prompt 要求保序 | 框架只给挂点，逻辑自行组装 |
