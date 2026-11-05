@@ -21,6 +21,7 @@
 - [向量化与索引](#向量化与索引)
 - [检索](#检索)
 - [回答](#回答)
+- [连续对话（总 CLI）](#连续对话总-cli)
 - [局域网接口](#局域网接口)
 - [许可](#许可)
 
@@ -42,7 +43,7 @@ uv run python -m src.rag.cli.retrieval search data/quickstart-index \
 
 ## 从哪里开始读代码
 
-目前已实现到回答阶段和局域网接口：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索 → 可选重排 → 基于片段的回答 → HTTP 接口`。检索分数和重排分数都不能单独证明候选相关或答案正确，生成模型也不保证回答忠实于原文，仍需人工核对。
+目前已实现到回答阶段、连续对话命令行和局域网接口：`PDF → 页面 Document → 切片 Node → 向量和持久化索引 → dense 检索 → 可选重排 → 基于片段的回答 → HTTP 接口`。检索分数和重排分数都不能单独证明候选相关或答案正确，生成模型也不保证回答忠实于原文，仍需人工核对。
 
 1. 从 [加载命令](src/rag/cli/loading.py) 开始，看参数如何传给 [PDF 加载器](src/rag/ingestion/pdf.py)。每个页面的正文和来源信息放在 LlamaIndex `Document` 中；物理页码从 1 开始。
 2. 接着看 [切片命令](src/rag/cli/chunking.py) 和 [切片逻辑](src/rag/chunking/split.py)。`Node` 是可索引的片段，继承文件和页码信息；连续页面可以组成跨页片段。[偏移量切分器](src/rag/chunking/offset_splitter.py) 记录片段在拼接原文中的字符位置，以确定覆盖了哪些页面。
@@ -204,6 +205,53 @@ uv run python -m src.rag.cli.answering data/index-from14-384 \
 命令先用 dense top 20 召回并重排取前 5 条作为证据；加 `--dense-only` 可直接使用 dense 结果。证据还要通过相关度门槛：重排结果默认要求 rerank 分不低于 0.3，dense 结果默认要求相似度不低于 0.5；低于门槛的片段会被丢弃并重新编号，全部低于门槛时直接提示资料不足，不调用模型。阈值是经验值，换模型或索引后需要重新校准，可用 `--min-rerank-score`、`--min-dense-score` 调整。输出包括回答、引用编号检查，以及每条证据的文件名、来源路径、物理页码、片段 ID 和完整原文。证据会被标为“已被引用”或“未被引用”；回答引用了不存在的编号，或完全没有引用时，命令会明确提示。检索不到通过来源、正文和相关度检查的片段时，命令直接给出资料不足提示，不调用模型，也不需要密钥。
 
 `--api-key-env` 可改用其他环境变量名。模型返回空回答、输出达到上限（`finish_reason=length`）、鉴权失败或网络错误都会作为失败报告，不会退回本地模型、展示半截回答或编造回答。回答是否忠于原文、是否遗漏限定条件，仍要按引用打开 PDF 人工核对；实验协议和限制见[回答实验记录](docs/experiments/answering.md)。
+
+## 连续对话（总 CLI）
+
+索引是唯一必填入口。启动后只输入中文问题即可连续问答；检索、重排、相关度过滤和引用检查与单次回答命令一致，模型只在启动时加载一次：
+
+```bash
+uv run python -m src.rag.cli.chat data/index-from14-384
+```
+
+也可以使用包级入口：
+
+```bash
+uv run python -m src.rag data/index-from14-384
+```
+
+默认使用 `src/rag/config/answering.py` 中的生成模型和 `src/rag/config/retrieval.py` 中的 `dense top 20 → rerank top 5`。启动时会先检查密钥、索引和模型，缺失或索引不兼容会直接退出，不会进入每轮都报错的对话。默认保留最近 3 轮问答：有历史时，追问会先由模型改写成不依赖上文的独立问题，再用于检索；改写后的问题会显示在“检索用问题”一行，便于判断是否被改偏。改写失败会回退到原问题继续检索。
+
+交互命令：
+
+| 输入 | 行为 |
+| --- | --- |
+| 中文问题 | 检索、过滤并生成带 `[n]` 引用的回答 |
+| `:quit`、`退出` | 结束对话 |
+| `:clear`、`清空` | 清空最近对话上下文，不删除索引 |
+| `:help`、`帮助` | 显示命令说明 |
+
+每轮默认只显示回答、引用检查，以及每条证据的文件名、来源路径、物理页码和来源状态；加 `--show-evidence` 才会打印完整原文。这样可以连续提问而不让整段证据刷满终端，完整正文仍可用单次回答命令或 `--show-evidence` 查看。证据被引用或未被引用会标记出来。
+
+常用参数：
+
+```bash
+# 查看完整证据原文
+uv run python -m src.rag.cli.chat data/index-from14-384 --show-evidence
+
+# 关闭多轮改写，每个问题独立检索
+uv run python -m src.rag.cli.chat data/index-from14-384 --history-turns 0
+
+# 不加载重排模型，只用 dense 结果
+uv run python -m src.rag.cli.chat data/index-from14-384 --dense-only
+
+# 临时换生成模型
+uv run python -m src.rag.cli.chat data/index-from14-384 --llm-model 模型名
+```
+
+`--model-path`、`--rerank-model-path`、`--candidate-k`、`--top-k`、`--api-base`、`--api-key-env`、`--no-llm-proxy`、`--min-rerank-score`、`--min-dense-score` 与单次命令含义相同。连续对话会在启动时把 embedding 和重排模型加载一次，因此每轮不再重复加载；首次启动仍要等待模型加载。
+
+已知限制：多轮只保留最近 N 轮，无法回忆更早的对话；改写可能漏掉或添加原问题没有的限定，需看“检索用问题”核对；回答仍可能漏引、错引或混入书外知识，必须按 `[n]` 打开 PDF 核对。每轮改写和回答都会调用外部生成服务并产生费用；没有可交付证据时只提示资料不足，不调用生成模型。
 
 ## 局域网接口
 
