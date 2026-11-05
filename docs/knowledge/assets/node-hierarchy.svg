@@ -1,0 +1,150 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1420" height="1417" viewBox="0 0 1420 1417" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', 'PingFang SC', sans-serif">
+  <defs>
+    <style>
+      .box   { fill:#161b22; stroke:#3d4a5c; stroke-width:1.4; }
+      .boxA  { fill:#161b22; stroke:#58a6ff; stroke-width:1.6; }
+      .name  { fill:#e6edf3; font-size:15px; font-weight:600; }
+      .role  { fill:#9aa7b6; font-size:11px; }
+      .attr  { fill:#c9d5e3; font-size:11px; }
+      .meth  { fill:#a8bccf; font-size:11px; }
+      .sep   { stroke:#2b3644; stroke-width:1; }
+      .edge  { fill:none; stroke:#5b6b80; stroke-width:1.4; }
+      .tri   { fill:#0e1116; stroke:#5b6b80; stroke-width:1.4; stroke-linejoin:round; }
+      .dash  { fill:none; stroke:#3f4d5e; stroke-width:1.2; stroke-dasharray:5 4; }
+      .dlabel{ fill:#6b7a8c; font-size:10px; }
+      .ttl   { fill:#e6edf3; font-size:17px; font-weight:600; }
+      .sub   { fill:#8b949e; font-size:12px; }
+      .lgd   { fill:#8b949e; font-size:12px; }
+    </style>
+  </defs>
+  <rect width="1420" height="1417" fill="#0e1116"/>
+  <text class="ttl" x="40" y="38">llama-index-core 节点类：作用、属性与方法（main 分支 / 项目安装 0.14.25）</text>
+  <text class="sub" x="40" y="62">空心三角指向父类；蓝框为 Node → Document 主干。属性取自 model_fields，兼容属性与派生成员单独标注，方法取自本地包源码</text>
+  <path class="edge" d="M230 299 V260 H680 V237"/>
+  <path class="edge" d="M710 299 V260 H740 V237"/>
+  <path class="edge" d="M230 619 V580 H680 V557"/>
+  <path class="edge" d="M1190 619 V580 H740 V557"/>
+  <path class="edge" d="M230 864 V825 H230 V802"/>
+  <path class="edge" d="M710 864 V825 H1160 V802"/>
+  <path class="edge" d="M1190 864 V825 H1220 V802"/>
+  <path class="edge" d="M230 1139 V1100 H230 V1077"/>
+  <path class="dash" d="M420 653 H520"/>
+  <text class="dlabel" x="430" y="645">资源类型</text>
+  <rect class="box" x="520" y="84" width="380" height="137" rx="10"/>
+  <text class="name" x="534" y="110">BaseComponent</text>
+  <text class="role" x="534" y="129">作用：所有组件的公共父类，只承担类型标识与序列化</text>
+  <line class="sep" x1="520" y1="137" x2="900" y2="137"/>
+  <text class="attr" x="534" y="159">属性：无自有字段（继承 pydantic BaseModel）</text>
+  <line class="sep" x1="520" y1="166" x2="900" y2="166"/>
+  <text class="meth" x="534" y="188">方法：class_name() · to_dict() / to_json()</text>
+  <text class="meth" x="534" y="203">　　　from_dict() / from_json()</text>
+  <rect class="box" x="40" y="299" width="380" height="152" rx="10"/>
+  <text class="name" x="54" y="325">TransformComponent</text>
+  <text class="role" x="54" y="344">作用：批量处理节点的组件基类</text>
+  <text class="role" x="54" y="359">　　　NodeParser 与 BaseExtractor 的父类</text>
+  <line class="sep" x1="40" y1="367" x2="420" y2="367"/>
+  <text class="attr" x="54" y="389">属性：无自有字段</text>
+  <line class="sep" x1="40" y1="396" x2="420" y2="396"/>
+  <text class="meth" x="54" y="418">方法：__call__(nodes) 抽象</text>
+  <text class="meth" x="54" y="433">　　　acall(nodes) 默认转调 __call__</text>
+  <rect class="box" x="520" y="299" width="380" height="242" rx="10"/>
+  <text class="name" x="534" y="325">BaseNode</text>
+  <text class="role" x="534" y="344">作用：可检索节点抽象，定死身份、元数据、关系与内容接口</text>
+  <line class="sep" x1="520" y1="352" x2="900" y2="352"/>
+  <text class="attr" x="534" y="374">属性：id_ · embedding · metadata · relationships</text>
+  <text class="attr" x="534" y="389">　　　excluded_embed_metadata_keys</text>
+  <text class="attr" x="534" y="404">　　　excluded_llm_metadata_keys</text>
+  <text class="attr" x="534" y="419">　　　metadata_template · metadata_separator</text>
+  <text class="attr" x="534" y="434">派生：node_id · ref_doc_id · hash · source_node</text>
+  <text class="attr" x="534" y="449">　　　prev_node / next_node · parent_node / child_nodes</text>
+  <line class="sep" x1="520" y1="456" x2="900" y2="456"/>
+  <text class="meth" x="534" y="478">方法：get_content() · set_content()</text>
+  <text class="meth" x="534" y="493">　　　get_content_blocks() · get_embedding()</text>
+  <text class="meth" x="534" y="508">　　　get_metadata_str() · as_related_node_info()</text>
+  <text class="meth" x="534" y="523">抽象：get_type() · hash（子类必须实现）</text>
+  <rect class="boxA" x="40" y="619" width="380" height="167" rx="10"/>
+  <text class="name" x="54" y="645">Node</text>
+  <text class="role" x="54" y="664">作用：多模态节点，0.12 起新增，Document 的父类</text>
+  <line class="sep" x1="40" y1="672" x2="420" y2="672"/>
+  <text class="attr" x="54" y="694">属性：text_resource · image_resource</text>
+  <text class="attr" x="54" y="709">　　　audio_resource · video_resource · text_template</text>
+  <text class="attr" x="54" y="724">类型：四个 *_resource 均为 MediaResource | None</text>
+  <line class="sep" x1="40" y1="731" x2="420" y2="731"/>
+  <text class="meth" x="54" y="753">方法：覆写 get_content() / set_content()</text>
+  <text class="meth" x="54" y="768">　　　get_type() → ObjectType.MULTIMODAL</text>
+  <rect class="box" x="520" y="619" width="380" height="167" rx="10"/>
+  <text class="name" x="534" y="645">MediaResource</text>
+  <text class="role" x="534" y="664">作用：承载文本 / 图片 / 音频 / 视频内容的容器</text>
+  <text class="role" x="534" y="679">　　　不属于节点继承链，只是 *_resource 的值类型</text>
+  <line class="sep" x1="520" y1="687" x2="900" y2="687"/>
+  <text class="attr" x="534" y="709">属性：text · data · path · url · mimetype</text>
+  <text class="attr" x="534" y="724">　　　embeddings（sparse / dense 向量）</text>
+  <line class="sep" x1="520" y1="731" x2="900" y2="731"/>
+  <text class="meth" x="534" y="753">派生：hash 按内容计算</text>
+  <text class="meth" x="534" y="768">方法：serialize_path()</text>
+  <rect class="boxA" x="1000" y="619" width="380" height="167" rx="10"/>
+  <text class="name" x="1014" y="645">TextNode</text>
+  <text class="role" x="1014" y="664">作用：纯文本节点，切片器默认产出，旧代码主接口</text>
+  <line class="sep" x1="1000" y1="672" x2="1380" y2="672"/>
+  <text class="attr" x="1014" y="694">属性：text · mimetype · start_char_idx</text>
+  <text class="attr" x="1014" y="709">　　　end_char_idx · text_template</text>
+  <line class="sep" x1="1000" y1="716" x2="1380" y2="716"/>
+  <text class="meth" x="1014" y="738">方法：get_text() · 覆写 get_content()</text>
+  <text class="meth" x="1014" y="753">　　　get_type() → ObjectType.TEXT</text>
+  <text class="meth" x="1014" y="768">　　　node_info 已标记弃用</text>
+  <rect class="boxA" x="40" y="864" width="380" height="197" rx="10"/>
+  <text class="name" x="54" y="890">Document</text>
+  <text class="role" x="54" y="909">作用：带来源语义的原始文档，Reader 输出、切片输入</text>
+  <line class="sep" x1="40" y1="917" x2="420" y2="917"/>
+  <text class="attr" x="54" y="939">属性：text_resource · metadata · relationships</text>
+  <text class="attr" x="54" y="954">继承 Node：另外带 image / audio / video_resource</text>
+  <text class="attr" x="54" y="969">兼容：text · doc_id · extra_info</text>
+  <line class="sep" x1="40" y1="976" x2="420" y2="976"/>
+  <text class="meth" x="54" y="998">方法：get_doc_id() · get_type() → ObjectType.DOCUMENT</text>
+  <text class="meth" x="54" y="1013">　　　to_langchain_format() / to_haystack_format()</text>
+  <text class="meth" x="54" y="1028">　　　to_cloud_document() 等格式转换</text>
+  <text class="meth" x="54" y="1043">　　　__init__ 把旧字段转成 text_resource 等</text>
+  <rect class="box" x="520" y="864" width="380" height="167" rx="10"/>
+  <text class="name" x="534" y="890">IndexNode</text>
+  <text class="role" x="534" y="909">作用：把子索引或检索器包装成可检索条目</text>
+  <text class="role" x="534" y="924">　　　递归检索依赖它</text>
+  <line class="sep" x1="520" y1="932" x2="900" y2="932"/>
+  <text class="attr" x="534" y="954">属性：index_id · obj（对象引用）</text>
+  <text class="attr" x="534" y="969">　　　并继承 TextNode 全部字段</text>
+  <line class="sep" x1="520" y1="976" x2="900" y2="976"/>
+  <text class="meth" x="534" y="998">方法：from_text_node(node, index_id) 类方法</text>
+  <text class="meth" x="534" y="1013">　　　get_type() → ObjectType.INDEX</text>
+  <rect class="box" x="1000" y="864" width="380" height="167" rx="10"/>
+  <text class="name" x="1014" y="890">ImageNode</text>
+  <text class="role" x="1014" y="909">作用：图片节点，TextNode 的子类</text>
+  <line class="sep" x1="1000" y1="917" x2="1380" y2="917"/>
+  <text class="attr" x="1014" y="939">属性：image(base64) · image_path · image_url</text>
+  <text class="attr" x="1014" y="954">　　　image_mimetype · text_embedding</text>
+  <line class="sep" x1="1000" y1="961" x2="1380" y2="961"/>
+  <text class="meth" x="1014" y="983">方法：resolve_image() 返回可读图像</text>
+  <text class="meth" x="1014" y="998">　　　get_type() → ObjectType.IMAGE</text>
+  <text class="meth" x="1014" y="1013">　　　hash 按图片内容重算</text>
+  <rect class="box" x="40" y="1139" width="380" height="182" rx="10"/>
+  <text class="name" x="54" y="1165">ImageDocument</text>
+  <text class="role" x="54" y="1184">作用：图片文档，0.14.25 只继承 Document</text>
+  <text class="role" x="54" y="1199">　　　旧版是 Document + ImageNode 多重继承</text>
+  <line class="sep" x1="40" y1="1207" x2="420" y2="1207"/>
+  <text class="attr" x="54" y="1229">属性：无自有字段，图片存进 image_resource</text>
+  <text class="attr" x="54" y="1244">兼容属性：image · image_path · image_url</text>
+  <text class="attr" x="54" y="1259">　　　　　image_mimetype · text_embedding</text>
+  <line class="sep" x1="40" y1="1266" x2="420" y2="1266"/>
+  <text class="meth" x="54" y="1288">方法：__init__ 把 image 参数转成 MediaResource</text>
+  <text class="meth" x="54" y="1303">　　　resolve_image() 返回可读图像</text>
+  <polygon class="tri" points="680,221 671,237 689,237"/>
+  <polygon class="tri" points="740,221 731,237 749,237"/>
+  <polygon class="tri" points="680,541 671,557 689,557"/>
+  <polygon class="tri" points="740,541 731,557 749,557"/>
+  <polygon class="tri" points="230,786 221,802 239,802"/>
+  <polygon class="tri" points="1160,786 1151,802 1169,802"/>
+  <polygon class="tri" points="1220,786 1211,802 1229,802"/>
+  <polygon class="tri" points="230,1061 221,1077 239,1077"/>
+  <path class="edge" d="M60 1367 H120"/>
+  <polygon class="tri" points="136,1367 120,1359 120,1375"/>
+  <text class="lgd" x="152" y="1371">三角所指 = 父类，箭尾 = 子类（UML 泛化）</text>
+  <text class="lgd" x="60" y="1397">NodeWithScore 不属于节点继承链，它直接继承 BaseComponent，只包装 node 与 score 两个字段</text>
+</svg>

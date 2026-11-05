@@ -17,6 +17,8 @@
 | `MarkdownElementNodeParser` | 解析 Markdown 中的元素，包括更复杂的结构 | 需要单独处理文档元素时；配置和依赖需按版本确认 |
 | `SimpleFileNodeParser` | 根据文件类型选择相应解析器 | 混合格式文档的基础解析 |
 
-`NodeParser` 负责把 `Document` 转成 `Node`，还可以携带元数据和节点关系；`TextSplitter` 则是偏向文本切分的一类解析器。
+`NodeParser` 负责把 `Document` 转成 `Node`，还可以携带元数据和节点关系；`TextSplitter` 则是偏向文本切分的一类解析器。以下是这些类型在本项目安装版本中的继承关系：
+
+![llama-index-core 节点类继承关系：BaseComponent 下分 TransformComponent 与 BaseNode，BaseNode 下分 Node 与 TextNode，Document 继承 Node](assets/node-hierarchy.svg)
 
 当前 PDF 流程拼接同一文件的连续物理页后切片，并记录片段覆盖的页码；空页和缺页处断开。更换切片器本身不能解决来源映射问题。语义切片需要嵌入模型；使用外部服务前应确认数据流向、配置与成本。
