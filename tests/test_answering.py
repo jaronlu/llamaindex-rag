@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 from collections.abc import Sequence
+from typing import Any
 
 from llama_index.core.base.llms.types import ChatMessage, ChatResponse, MessageRole
 
@@ -213,7 +214,9 @@ class GenerateAnswerTests(unittest.TestCase):
 
     def test_rejects_non_text_content_with_specific_message(self):
         class NonTextModel:
-            def chat(self, messages):
+            def chat(self, messages: Sequence[ChatMessage]) -> Any:
+                # 故意返回非文本 content，模拟服务端返回结构化片段；返回类型用 Any
+                # 表示这个替身本就不满足 ChatResponse 的约定，由被测逻辑负责拒绝。
                 return SimpleNamespace(raw={}, message=SimpleNamespace(content=[{"type": "text", "text": "回答"}]))
 
         with self.assertRaisesRegex(ValueError, "非文本内容"):
