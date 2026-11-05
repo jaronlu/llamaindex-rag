@@ -10,14 +10,13 @@ from __future__ import annotations
 import argparse
 import logging
 import sys
-from collections.abc import Sequence
 from pathlib import Path
 
 from .arguments import add_retrieval_arguments
 from .logging import logged_command
+from .output import print_citation_check, print_evidence
 
 from ..answering.generate import (
-    Answer,
     create_llm,
     describe_llm_error,
     generate_answer,
@@ -36,47 +35,10 @@ from ..config.answering import (
     DEFAULT_MIN_RERANK_SCORE,
 )
 from ..config.retrieval import DEFAULT_RETRIEVAL_TOP_K
-from ..retrieval.search import RetrievalResult, retrieve, retrieve_and_rerank
+from ..retrieval.search import retrieve, retrieve_and_rerank
 
 
 logger = logging.getLogger(__name__)
-
-
-def _print_evidence(evidence: Sequence[RetrievalResult], cited: set[int]) -> None:
-    """打印每条证据的完整正文和来源状态，并标出是否被回答引用。
-
-    生成失败时也会用空引用集合调用，让已经检索到的片段仍可人工排查。
-    """
-    for number, result in enumerate(evidence, start=1):
-        marker = "已被引用" if number in cited else "未被引用"
-        print(f"\n--- 证据 {number}（{marker}）---")
-        print(f"文件名: {result.file_name}")
-        print(f"来源路径: {result.source_path}")
-        print(f"物理页码: {result.page_label}")
-        print(f"片段 ID: {result.node_id}")
-        print(f"来源状态: {result.source_status_label}")
-        print("完整原文:")
-        print(result.text)
-
-
-def _print_citation_check(answer: Answer) -> None:
-    """输出引用编号和来源状态检查，明确区分可核对和不可核对的情况。"""
-    if answer.invalid_citations:
-        labels = ", ".join(f"[{number}]" for number in answer.invalid_citations)
-        print(f"\n引用检查: 回答包含不存在的证据编号 {labels}；这些编号无法对应原文，不能作为依据。")
-    elif answer.citations:
-        labels = ", ".join(f"[{number}]" for number in answer.citations)
-        print(f"\n引用检查: 回答引用了 {labels}。")
-    else:
-        print("\n引用检查: 回答没有出现 [n] 引用。若结论是资料不足，请人工确认是否确实缺乏依据；若是正常回答，则无法把陈述对应到原文。")
-
-    # 被引用的证据仍可能因源文件缺失或版本变化而无法核对；不单独提示的话，
-    # 读者容易把“有页码”误当成“已验证”。
-    cited = set(answer.citations) - set(answer.invalid_citations)
-    unverified = [number for number in sorted(cited) if not answer.evidence[number - 1].provenance_complete]
-    if unverified:
-        labels = ", ".join(f"[{number}]" for number in unverified)
-        print(f"来源检查: 引用的证据 {labels} 无法回到当前文件核对；回答中的相应内容不能视为已验证。")
 
 
 @logged_command
@@ -178,12 +140,12 @@ def main(argv: list[str] | None = None) -> int:
         # 检索阶段已经完成；把片段打印出来，便于判断失败前证据是否已经取到、
         # 内容是否足以回答，而不是让用户只能重跑一次检索。
         print("\n检索已完成，以下证据已取得但未生成回答，可供排查:")
-        _print_evidence(results, set())
+        print_evidence(results, set())
         return 1
 
     print(f"\n回答:\n{answer.answer}")
-    _print_citation_check(answer)
-    _print_evidence(answer.evidence, set(answer.citations) - set(answer.invalid_citations))
+    print_citation_check(answer)
+    print_evidence(answer.evidence, set(answer.citations) - set(answer.invalid_citations))
     return 0
 
 

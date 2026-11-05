@@ -119,6 +119,48 @@ def _result_from_node(
     )
 
 
+def _prepare_retriever(
+    index_path: Path,
+    model_path: Path,
+    top_k: int,
+) -> tuple[dict[str, Any], Any]:
+    """加载持久化索引并返回 manifest 与可复用的检索器。
+
+    合并到一处是为了让单次检索和连续对话共用同一套兼容性检查、模型加载和
+    设备配置；否则两条路径很容易在模型身份或本地快照策略上悄悄分叉。
+    """
+    index_path = index_path.expanduser().resolve()
+    manifest = read_manifest(index_path)
+    model_path = model_path.expanduser().resolve(strict=True)
+    identity = snapshot_identity(model_path)
+    # 查询阶段能独立核对的只有模型身份（模型名、revision、快照内容摘要）。
+    # 维度和切片参数只能从 manifest 自身读出，再拿它与 manifest 比较是恒真检查；
+    # 模型身份一致时，这些派生配置必然来自同一次构建。
+    check_compatibility(manifest, identity)
+
+    # 与索引构建阶段使用同一设备和本地快照策略；查询文本不会发送到外部服务。
+    from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
+
+    model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_INFERENCE_DEVICE, local_files_only=True)
+    context = StorageContext.from_defaults(persist_dir=str(index_path))
+    index = load_index_from_storage(context, embed_model=model)
+    return manifest, index.as_retriever(similarity_top_k=top_k, embed_model=model)
+
+
+def _results_from_raw(
+    raw_results: Sequence[Any],
+    manifest: dict[str, Any],
+) -> list[RetrievalResult]:
+    """把 LlamaIndex 命中对象转换成项目结果，并丢弃来源不完整的节点。"""
+    results: list[RetrievalResult] = []
+    source_status_cache: dict[str, tuple[bool, bool, str | None]] = {}
+    for raw in raw_results:
+        result = _result_from_node(len(results) + 1, raw, manifest, source_status_cache)
+        if result is not None:
+            results.append(result)
+    return results
+
+
 def retrieve(
     index_path: Path,
     model_path: Path,
@@ -146,31 +188,8 @@ def retrieve(
     if isinstance(top_k, bool) or not isinstance(top_k, int) or top_k <= 0:
         raise ValueError("Top-K 必须是正整数")
 
-    index_path = index_path.expanduser().resolve()
-    manifest = read_manifest(index_path)
-    model_path = model_path.expanduser().resolve(strict=True)
-    identity = snapshot_identity(model_path)
-    # 查询阶段能独立核对的只有模型身份（模型名、revision、快照内容摘要）。
-    # 维度和切片参数只能从 manifest 自身读出，再拿它与 manifest 比较是恒真检查；
-    # 模型身份一致时，这些派生配置必然来自同一次构建。
-    check_compatibility(manifest, identity)
-
-    # 与索引构建阶段使用同一设备和本地快照策略；查询文本不会发送到外部服务。
-    from llama_index.embeddings.huggingface import HuggingFaceEmbedding  # type: ignore[import-untyped]
-
-    model = HuggingFaceEmbedding(model_name=str(model_path), device=DEFAULT_INFERENCE_DEVICE, local_files_only=True)
-    context = StorageContext.from_defaults(persist_dir=str(index_path))
-    index = load_index_from_storage(context, embed_model=model)
-    retriever = index.as_retriever(similarity_top_k=top_k, embed_model=model)
-    raw_results = retriever.retrieve(question)
-
-    results: list[RetrievalResult] = []
-    source_status_cache: dict[str, tuple[bool, bool, str | None]] = {}
-    for raw in raw_results:
-        result = _result_from_node(len(results) + 1, raw, manifest, source_status_cache)
-        if result is not None:
-            results.append(result)
-    return results
+    manifest, retriever = _prepare_retriever(index_path, model_path, top_k)
+    return _results_from_raw(retriever.retrieve(question), manifest)
 
 
 def _validate_rerank_limit(value: int, label: str) -> None:
@@ -219,6 +238,20 @@ def rerank(
         return []
     model = _load_cross_encoder(rerank_path)
 
+    return _rerank_with_model(question, candidates, model, top_k)
+
+
+def _rerank_with_model(
+    question: str,
+    candidates: Sequence[RetrievalResult],
+    model: Any,
+    top_k: int,
+) -> list[RetrievalResult]:
+    """用已经加载的重排模型对候选打分并返回前 top_k 条。
+
+    连续对话需要复用模型，因此把打分和排序从模型加载中拆开；单次 rerank
+    仍负责校验路径和加载模型，行为不变。
+    """
     pairs = [(question, candidate.text) for candidate in candidates]
     scores = model.predict(pairs)
     if len(scores) != len(candidates):
@@ -264,3 +297,54 @@ def retrieve_and_rerank(
         raise ValueError(f"重排模型不存在或不是目录: {rerank_path}")
     candidates = retrieve(index_path, model_path, question, top_k=candidate_k)
     return rerank(question, candidates, rerank_path, top_k=top_k)
+
+
+class RetrievalSession:
+    """复用已加载索引、embedding 和重排模型的连续检索会话。
+
+    单次命令每次调用 retrieve 或 retrieve_and_rerank 都会重新加载模型；连续对话
+    每轮都这样做会明显变慢。本类在构造时完成模型身份校验和一次加载，search 只
+    执行查询和打分。索引或模型不兼容时在构造阶段失败，避免对话开始后每轮重复
+    报错。
+    """
+
+    def __init__(
+        self,
+        index_path: Path,
+        model_path: Path,
+        rerank_model_path: Path | None = None,
+        *,
+        dense_only: bool = False,
+        candidate_k: int = DEFAULT_CANDIDATE_K,
+        top_k: int = DEFAULT_RETRIEVAL_TOP_K,
+    ) -> None:
+        _validate_rerank_limit(top_k, "Top-K")
+        # 用 None 表示“不重排”，而不是在加载时再判断 dense_only：类型检查器无法
+        # 关联两个分支，容易把 rerank_path 误判为可能未赋值。
+        rerank_path: Path | None = None
+        if dense_only:
+            recall_k = top_k
+        else:
+            _validate_rerank_limit(candidate_k, "候选数量")
+            if top_k > candidate_k:
+                raise ValueError("最终 Top-K 不能大于候选数量")
+            if rerank_model_path is None:
+                raise ValueError("启用重排时必须提供重排模型目录")
+            rerank_path = rerank_model_path.expanduser().resolve()
+            if not rerank_path.is_dir():
+                raise ValueError(f"重排模型不存在或不是目录: {rerank_path}")
+            recall_k = candidate_k
+
+        # 先加载 embedding 和索引，再加载更大的重排模型；路径错误已经在上方提前报出。
+        self._manifest, self._retriever = _prepare_retriever(index_path, model_path, recall_k)
+        self._reranker = _load_cross_encoder(rerank_path) if rerank_path is not None else None
+        self._top_k = top_k
+
+    def search(self, question: str) -> list[RetrievalResult]:
+        """检索一个问题，按配置返回 dense 或重排后的可追溯片段。"""
+        if not isinstance(question, str) or not question.strip():
+            raise ValueError("问题不能为空")
+        results = _results_from_raw(self._retriever.retrieve(question), self._manifest)
+        if self._reranker is None:
+            return results
+        return _rerank_with_model(question, results, self._reranker, self._top_k)

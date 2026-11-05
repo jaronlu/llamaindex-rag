@@ -15,7 +15,7 @@ from llama_index.core.schema import TextNode
 from src.rag.indexing.model import snapshot_identity
 from src.rag.indexing.store import build_index
 from src.rag.provenance import source_status
-from src.rag.retrieval.search import RetrievalResult, retrieve, rerank, retrieve_and_rerank
+from src.rag.retrieval.search import RetrievalResult, RetrievalSession, retrieve, rerank, retrieve_and_rerank
 
 
 def setUpModule():
@@ -255,6 +255,59 @@ class RetrievalCoreTests(unittest.TestCase):
             local_files_only=True,
             trust_remote_code=False,
         )
+
+    def test_session_reuses_retriever_and_reranker_across_questions(self):
+        class FakeCrossEncoder:
+            def __init__(self):
+                self.calls = 0
+
+            def predict(self, pairs):
+                self.calls += 1
+                return [0.5 for _ in pairs]
+
+        fake_model = FakeCrossEncoder()
+        with tempfile.TemporaryDirectory() as temp:
+            root = Path(temp)
+            index_path, model_path = make_index(root)
+            reranker_path = root / "reranker"
+            reranker_path.mkdir()
+            with patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", FakeLocalEmbedding), patch(
+                "src.rag.retrieval.search._load_cross_encoder", return_value=fake_model
+            ) as loader:
+                session = RetrievalSession(index_path, model_path, reranker_path, candidate_k=2, top_k=1)
+                first = session.search("alpha")
+                second = session.search("beta")
+
+        self.assertEqual(len(first), 1)
+        self.assertEqual(len(second), 1)
+        self.assertEqual(fake_model.calls, 2)
+        loader.assert_called_once()
+
+    def test_session_dense_only_skips_reranker(self):
+        with tempfile.TemporaryDirectory() as temp:
+            index_path, model_path = make_index(Path(temp))
+            with patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", FakeLocalEmbedding), patch(
+                "src.rag.retrieval.search._load_cross_encoder"
+            ) as loader:
+                session = RetrievalSession(index_path, model_path, dense_only=True, top_k=2)
+                results = session.search("question")
+
+        loader.assert_not_called()
+        self.assertEqual(len(results), 2)
+        self.assertTrue(all(item.rerank_score is None for item in results))
+
+    def test_session_validates_question_and_limits(self):
+        with tempfile.TemporaryDirectory() as temp:
+            index_path, model_path = make_index(Path(temp))
+            with patch("llama_index.embeddings.huggingface.HuggingFaceEmbedding", FakeLocalEmbedding):
+                session = RetrievalSession(index_path, model_path, dense_only=True, top_k=1)
+                with self.assertRaisesRegex(ValueError, "问题不能为空"):
+                    session.search("  ")
+
+        with self.assertRaisesRegex(ValueError, "Top-K"):
+            RetrievalSession(Path("/tmp/index"), Path("/tmp/embed"), dense_only=True, top_k=0)
+        with self.assertRaisesRegex(ValueError, "重排模型不存在"):
+            RetrievalSession(Path("/tmp/index"), Path("/tmp/embed"), Path("/tmp/missing-reranker"), top_k=1)
 
     def test_retrieve_and_rerank_uses_twenty_candidates_then_returns_five(self):
         candidates = [self.make_result(index, f"候选{index}", 1.0 - index / 100) for index in range(1, 21)]

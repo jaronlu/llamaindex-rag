@@ -112,7 +112,9 @@ def create_llm(
         temperature=temperature,
         max_tokens=max_tokens,
         timeout=timeout,
-        http_client=None if trust_env else httpx.Client(trust_env=False),
+        # Pyright 从 pydantic 字段推断构造函数，漏掉 OpenAI 显式 __init__ 中由
+        # PrivateAttr 支持的 http_client；运行时签名支持该参数，按运行时接口传参。
+        http_client=None if trust_env else httpx.Client(trust_env=False),  # pyright: ignore[reportCallIssue]
     )
 
 
@@ -190,7 +192,7 @@ def build_messages(question: str, results: Sequence[RetrievalResult]) -> list[Ch
     ]
 
 
-def _response_truncated(response: ChatResponse) -> bool:
+def response_truncated(response: ChatResponse) -> bool:
     """判断服务端是否因输出上限截断回答。
 
     OpenAI 兼容服务把结束原因放在原始响应里；``ChatResponse`` 没有统一字段，
@@ -281,7 +283,7 @@ def iter_answer_deltas(
     emitted = False
     for chunk in llm.stream_chat(build_messages(question, evidence)):
         # 结束原因可能只在最后一个 chunk 上出现，因此每个 chunk 都要检查。
-        truncated = _response_truncated(chunk) or truncated
+        truncated = response_truncated(chunk) or truncated
         delta = chunk.delta
         if not delta:
             continue
@@ -323,7 +325,7 @@ def generate_answer(
         raise ValueError("有证据片段时必须提供生成模型")
 
     response = llm.chat(build_messages(question, evidence))
-    if _response_truncated(response):
+    if response_truncated(response):
         # 截断的回答会停在句子中间，继续引用检查会让人误以为它只是“没引用全”，
         # 所以直接报失败，不交付不完整答案。
         raise ValueError("生成模型输出达到 max_tokens 上限，回答不完整；请调大上限或减少证据数量")
